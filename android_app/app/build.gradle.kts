@@ -26,6 +26,15 @@ android {
             }
         }
     }
+    androidResources { noCompress += "tflite" }
+
+    testOptions {
+        unitTests {
+            // Lets plain JVM unit tests call simple Android SDK methods (e.g. android.util.Log)
+            // without throwing "not mocked" — no Robolectric needed for our pure-logic tests.
+            isReturnDefaultValues = true
+        }
+    }
 
     externalNativeBuild {
         cmake {
@@ -84,7 +93,24 @@ dependencies {
     // COROUTINES (async WebSocket + shared state)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // TFLITE / LITERT (runs rtmdet.tflite; QNN delegate attaches to this Interpreter at runtime)
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+
+    // QNN HTP delegate for rtmdet.tflite. Version pinned to match the QAIRT version
+    // rtmdet.tflite was exported with (see assets/metadata.json -> tool_versions.qairt).
+    // These AARs bundle the QNN backend .so files (incl. libqnn_delegate_jni.so), so the
+    // native libs no longer need to be placed manually under jniLibs/arm64-v8a.
+    implementation("com.qualcomm.qti:qnn-litert-delegate:2.45.0")
+    implementation("com.qualcomm.qti:qnn-runtime:2.45.0")
+
+    // ONNX RUNTIME (runs rtmpose_body2d.onnx). This build bundles the QNN execution
+    // provider; it reuses the same QNN backend .so files pulled in above by qnn-runtime,
+    // so no extra native libs are needed for HTP acceleration here.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.26.0")
+
     testImplementation(libs.junit)
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

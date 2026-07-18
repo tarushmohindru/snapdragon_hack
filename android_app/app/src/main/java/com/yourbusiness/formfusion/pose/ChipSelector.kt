@@ -8,11 +8,11 @@ import android.os.Build
  */
 object ChipSelector {
     private val SOC_TO_HTP = mapOf(
-        "SM8550" to "v73",   // Snapdragon 8 Gen 2
+       // "SM8550" to "v73",   // Snapdragon 8 Gen 2
         "SM7575" to "v73",   // 8s Gen 3 (shares v73)
         "SM8650" to "v75",   // Snapdragon 8 Gen 3
         "SM8750" to "v79",   // Snapdragon 8 Elite
-        "SM8750AC" to "v79", // Galaxy S25
+        "SM8750AC" to "v79", // Galaxy S25cla
     )
 
     fun getHtpVersion(): String? {

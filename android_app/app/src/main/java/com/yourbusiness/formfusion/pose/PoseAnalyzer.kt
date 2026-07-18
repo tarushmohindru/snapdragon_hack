@@ -6,9 +6,14 @@ import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 
+/**
+ * Full two-stage pipeline: [personDetector] finds people in the frame, then
+ * [poseEstimator] runs on each detected crop to produce that person's keypoints.
+ */
 class PoseAnalyzer(
-    private val detector: PoseDetector,
-    private val onResult: (landmarks: List<LandmarkPoint>) -> Unit
+    private val personDetector: PersonDetector,
+    private val poseEstimator: PoseEstimator,
+    private val onResult: (persons: List<PersonPose>) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     override fun analyze(imageProxy: ImageProxy) {
@@ -16,12 +21,16 @@ class PoseAnalyzer(
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             val bitmap = rotateBitmap(imageProxy.toBitmap(), rotationDegrees)
 
-            val landmarks = detector.detect(bitmap, bitmap.width, bitmap.height)
-            onResult(landmarks)
+            val boxes = personDetector.detect(bitmap)
+            val persons = boxes.map { box ->
+                PersonPose(box, poseEstimator.estimate(bitmap, box))
+            }
+            onResult(persons)
 
             Log.d(
                 "PoseAnalyzer",
-                "frame ${bitmap.width}x${bitmap.height}, landmarks=${landmarks.size}"
+                "frame ${bitmap.width}x${bitmap.height}, persons=${persons.size}, " +
+                    "keypoints=${persons.sumOf { it.landmarks.size }}"
             )
         } finally {
             imageProxy.close() //release after processing each frame
