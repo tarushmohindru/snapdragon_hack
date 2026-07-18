@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.yourbusiness.formfusion.camera.CameraPreview
+import com.yourbusiness.formfusion.camera.PoseOverlay
 import com.yourbusiness.formfusion.pose.PoseAnalyzer
 import com.yourbusiness.formfusion.viewmodel.CameraViewModel
 import java.util.concurrent.Executors
@@ -74,6 +75,11 @@ fun CameraScreen(onBack: () -> Unit) {
     val viewModel = remember { CameraViewModel(context) }
     val uiState by viewModel.uiState.collectAsState()
 
+    // Single source of truth for which camera is bound — PoseOverlay derives its mirroring
+    // from this same value, so switching cameras can never leave the overlay un-mirrored.
+    val cameraSelector = remember { CameraSelector.DEFAULT_BACK_CAMERA }
+    val isFrontCamera = cameraSelector.lensFacing == CameraSelector.LENS_FACING_FRONT
+
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val controller = remember {
         LifecycleCameraController(context).apply {
@@ -81,13 +87,13 @@ fun CameraScreen(onBack: () -> Unit) {
             setImageAnalysisBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             setImageAnalysisAnalyzer(
                 analysisExecutor,
-                PoseAnalyzer(viewModel.personDetector, viewModel.poseEstimator) { persons ->
+                PoseAnalyzer(viewModel.personDetector, viewModel.poseEstimator) { persons, imageWidth, imageHeight ->
                     ContextCompat.getMainExecutor(context).execute {
-                        viewModel.onFrameAnalyzed(persons)
+                        viewModel.onFrameAnalyzed(persons, imageWidth, imageHeight)
                     }
                 }
             )
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            this.cameraSelector = cameraSelector
         }
     }
 
@@ -109,6 +115,14 @@ fun CameraScreen(onBack: () -> Unit) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         CameraPreview(controller = controller, modifier = Modifier.fillMaxSize())
+
+        PoseOverlay(
+            persons = uiState.lastPersons,
+            imageWidth = uiState.lastImageWidth,
+            imageHeight = uiState.lastImageHeight,
+            modifier = Modifier.fillMaxSize(),
+            mirrorHorizontally = isFrontCamera
+        )
 
         Text(
             text = if (uiState.isSessionActive) {

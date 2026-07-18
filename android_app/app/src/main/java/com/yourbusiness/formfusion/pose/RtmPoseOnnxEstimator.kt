@@ -5,6 +5,10 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
 import android.util.Log
 import java.io.File
 import java.nio.FloatBuffer
@@ -12,10 +16,25 @@ import kotlin.math.exp
 import kotlin.math.min
 
 /**
- * Pose estimator backed by rtmpose_body2d.onnx, run through ONNX Runtime with the QNN
- * HTP execution provider (falls back to CPU if HTP setup fails). Input/output tensor
- * shapes and value range come from ml/export_assets/rtmpose_body2d-onnx-float/metadata.json.
- * Output is SimCC-style: per-keypoint 1D classification bins for x and y, decoded via argmax.
+ * Pose estimator backed by rtmpose_body2d.onnx, run through ONNX Runtime with the QNN HTP
+ * execution provider (falls back to CPU if HTP setup fails).
+ *
+ * This mirrors mmpose's standard top-down pipeline exactly — the same one the qai_hub
+ * `RTMPosebody2dApp` inferencer runs — because that is the reference that produces correct
+ * keypoints:
+ *
+ *  - Input tensor: RGB, float [0,1], NCHW 1x3x256x192. The exported model's forward() does
+ *    the RGB->BGR swap and (x-mean)/std normalization INTERNALLY (see model.py), so we must
+ *    feed plain RGB/255 and do NOT normalize here.
+ *  - Box -> center/scale: [computeCenterScale] applies mmpose's GetBBoxCenterScale with the
+ *    default 1.25 padding, then grows the shorter side so the region's aspect ratio matches
+ *    192:256 (TopdownAffine's `_fix_aspect_ratio`).
+ *  - Warp: [warpToModelInput] affine-warps that region straight out of the full frame into
+ *    192x256, sampling anything past the frame edge as border — never a hard pre-crop, so a
+ *    person near an edge keeps correct geometry.
+ *  - Decode: SimCC argmax / split_ratio gives the keypoint in 192x256 input space;
+ *    [inputToOriginal] applies the exact inverse affine to land it back in the original
+ *    frame's pixel space.
  */
 class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
 
@@ -27,11 +46,30 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
         private const val INPUT_H = 256
         private const val NUM_KEYPOINTS = 133
         private const val SIMCC_SPLIT_RATIO = 2.0f
-        private const val BOX_PAD_RATIO = 0.1f
+
+        // mmpose GetBBoxCenterScale default. Expands the detection box around its center
+        // before the affine warp so joints near the box edge aren't clipped. This is the one
+        // tunable constant of the preprocessing — 1.25 is the RTMPose config default.
+        private const val BBOX_PADDING = 1.25f
+
+        // model.py's forward() applies (x - mean)/std with mmpose's PoseDataPreprocessor
+        // mean/std, which are in 0-255 scale. So the input must be RAW 0-255 pixels. Feeding
+        // [0,1] collapses every pixel to ~-2.1 after that normalization and destroys the
+        // image — the prime suspect for garbage keypoints. Flip to true to feed [0,1]
+        // (metadata's declared value_range) if 0-255 turns out to regress.
+        private const val FEED_NORMALIZED_0_1 = false
+
+        // Joints sampled by the on-device diagnostic log (RtmPoseDebug). Chosen to span the
+        // body vertically so a plausible layout is easy to spot: nose top, ankles bottom.
+        private val DIAG_JOINTS = mapOf(
+            0 to "nose", 5 to "Lsh", 6 to "Rsh", 11 to "Lhip", 12 to "Rhip",
+            15 to "Lank", 16 to "Rank"
+        )
     }
 
     private var env: OrtEnvironment? = null
     private var session: OrtSession? = null
+    private var diagFrame = 0
 
     override fun initialize(): Boolean {
         return try {
@@ -62,15 +100,11 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
         val ortEnv = env ?: return emptyList()
         val ortSession = session ?: return emptyList()
 
-        val (cropX1, cropY1, cropX2, cropY2) = fitBoxToAspectRatio(bitmap, box)
-        val cropW = cropX2 - cropX1
-        val cropH = cropY2 - cropY1
-        if (cropW <= 0 || cropH <= 0) return emptyList()
+        val cs = computeCenterScale(box)
+        if (cs.scaleW <= 0f || cs.scaleH <= 0f) return emptyList()
 
-        val crop = Bitmap.createBitmap(bitmap, cropX1, cropY1, cropW, cropH)
-        val resized = Bitmap.createScaledBitmap(crop, INPUT_W, INPUT_H, true)
-
-        val inputBuffer = bitmapToChwBuffer(resized)
+        val modelInput = warpToModelInput(bitmap, cs)
+        val inputBuffer = bitmapToChwBuffer(modelInput)
         val shape = longArrayOf(1, 3, INPUT_H.toLong(), INPUT_W.toLong())
 
         return try {
@@ -81,16 +115,44 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
                     @Suppress("UNCHECKED_CAST")
                     val predY = result.get("pred_y").get().value as Array<Array<FloatArray>>
 
-                    val scaleX = cropW.toFloat() / INPUT_W
-                    val scaleY = cropH.toFloat() / INPUT_H
+                    // Diagnostic (throttled): distinguishes "model output is garbage" from
+                    // "output is fine but my mapping is wrong". `in=` is the keypoint in the
+                    // model's own 192x256 input space (before any of my affine); a plausible
+                    // person should have nose near the top and ankles near the bottom. `raw=`
+                    // is the SimCC peak value — near-flat/tiny peaks mean the input image was
+                    // destroyed (normalization/channel bug).
+                    val logThisFrame = (diagFrame++ % 30 == 0)
+                    val diag = if (logThisFrame) StringBuilder() else null
 
-                    (0 until NUM_KEYPOINTS).map { k ->
+                    val landmarks = (0 until NUM_KEYPOINTS).map { k ->
                         val (xBin, xConf) = argmaxSoftmaxScore(predX[0][k])
                         val (yBin, yConf) = argmaxSoftmaxScore(predY[0][k])
-                        val x = (xBin / SIMCC_SPLIT_RATIO) * scaleX + cropX1
-                        val y = (yBin / SIMCC_SPLIT_RATIO) * scaleY + cropY1
-                        LandmarkPoint(k, x, y, 0f, min(xConf, yConf))
+                        val inputX = xBin / SIMCC_SPLIT_RATIO
+                        val inputY = yBin / SIMCC_SPLIT_RATIO
+                        // SimCC bin -> model-input pixel (0..192, 0..256), then inverse affine.
+                        val (origX, origY) = inputToOriginal(inputX, inputY, cs)
+
+                        diag?.let {
+                            val label = DIAG_JOINTS[k] ?: return@let
+                            val rawX = predX[0][k].maxOrNull() ?: 0f
+                            val rawY = predY[0][k].maxOrNull() ?: 0f
+                            it.append(
+                                "$label in=(${"%.0f".format(inputX)},${"%.0f".format(inputY)}) " +
+                                    "raw=(${"%.2f".format(rawX)},${"%.2f".format(rawY)}) | "
+                            )
+                        }
+                        LandmarkPoint(k, origX, origY, 0f, min(xConf, yConf))
                     }
+
+                    diag?.let {
+                        Log.i(
+                            "RtmPoseDebug",
+                            "norm=${if (FEED_NORMALIZED_0_1) "0..1" else "0..255"} " +
+                                "center=(${"%.0f".format(cs.centerX)},${"%.0f".format(cs.centerY)}) " +
+                                "scale=(${"%.0f".format(cs.scaleW)},${"%.0f".format(cs.scaleH)}) | $it"
+                        )
+                    }
+                    landmarks
                 }
             }
         } catch (e: Exception) {
@@ -116,50 +178,55 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
     }
 
     /**
-     * Grows [box] (plus padding) around its own center to match the model's 192:256
-     * aspect ratio, then fits it inside the bitmap bounds, so the resize to 192x256
-     * doesn't distort. Fitting is done by translating (and, only if the box is bigger
-     * than the whole bitmap, uniformly shrinking) rather than clamping each coordinate
-     * independently — independent clamping would skew the aspect ratio right back out
-     * whenever the box sits near an edge.
+     * mmpose `GetBBoxCenterScale(padding=1.25)` + `TopdownAffine` aspect fix. Converts the
+     * detection box (original-image xyxy) into the center and the width/height of the region
+     * that gets affine-warped onto the 192x256 model input. The region is padded by
+     * [BBOX_PADDING] around the box center, then grown on the shorter side so its aspect
+     * ratio is exactly 192:256 (so the warp introduces no distortion).
      */
-    internal fun fitBoxToAspectRatio(bitmap: Bitmap, box: BoundingBox): IntArray {
-        val padW = (box.x2 - box.x1) * BOX_PAD_RATIO
-        val padH = (box.y2 - box.y1) * BOX_PAD_RATIO
-        val cx = (box.x1 + box.x2) / 2f
-        val cy = (box.y1 + box.y2) / 2f
-        var w = (box.x2 - box.x1) + 2 * padW
-        var h = (box.y2 - box.y1) + 2 * padH
+    internal fun computeCenterScale(box: BoundingBox): CenterScale {
+        val centerX = (box.x1 + box.x2) / 2f
+        val centerY = (box.y1 + box.y2) / 2f
+        var w = (box.x2 - box.x1) * BBOX_PADDING
+        var h = (box.y2 - box.y1) * BBOX_PADDING
 
-        val targetAspect = INPUT_W.toFloat() / INPUT_H
-        val aspect = if (h > 0f) w / h else targetAspect
-        if (aspect > targetAspect) {
-            h = w / targetAspect
-        } else {
-            w = h * targetAspect
+        val aspect = INPUT_W.toFloat() / INPUT_H
+        if (w > h * aspect) h = w / aspect else w = h * aspect
+        return CenterScale(centerX, centerY, w, h)
+    }
+
+    /**
+     * Inverse of the affine warp: maps a model-input pixel (x in 0..192, y in 0..256) back
+     * to the original frame's pixel space. Matches mmpose's decode
+     * `keypoint / input_size * scale + (center - scale/2)`.
+     */
+    internal fun inputToOriginal(inputX: Float, inputY: Float, cs: CenterScale): Pair<Float, Float> {
+        val originX = cs.centerX - cs.scaleW / 2f
+        val originY = cs.centerY - cs.scaleH / 2f
+        val origX = inputX * cs.scaleW / INPUT_W + originX
+        val origY = inputY * cs.scaleH / INPUT_H + originY
+        return origX to origY
+    }
+
+    /**
+     * Affine-warps the [center, scale] region of the full [bitmap] onto a fresh 192x256
+     * bitmap. Uses a translate+scale Matrix (no rotation, as mmpose does at inference), and
+     * pre-fills black so any part of the region beyond the frame edge is border-sampled
+     * rather than clamped — the same behavior as cv2.warpAffine's constant border.
+     */
+    private fun warpToModelInput(bitmap: Bitmap, cs: CenterScale): Bitmap {
+        val originX = cs.centerX - cs.scaleW / 2f
+        val originY = cs.centerY - cs.scaleH / 2f
+        val matrix = Matrix().apply {
+            postTranslate(-originX, -originY)
+            postScale(INPUT_W / cs.scaleW, INPUT_H / cs.scaleH)
         }
-
-        val maxW = bitmap.width.toFloat()
-        val maxH = bitmap.height.toFloat()
-        val shrink = min(if (w > 0f) maxW / w else 1f, if (h > 0f) maxH / h else 1f).coerceAtMost(1f)
-        w *= shrink
-        h *= shrink
-
-        var x1 = cx - w / 2f
-        var x2 = cx + w / 2f
-        var y1 = cy - h / 2f
-        var y2 = cy + h / 2f
-
-        if (x1 < 0f) { x2 -= x1; x1 = 0f }
-        if (x2 > maxW) { x1 -= (x2 - maxW); x2 = maxW }
-        if (y1 < 0f) { y2 -= y1; y1 = 0f }
-        if (y2 > maxH) { y1 -= (y2 - maxH); y2 = maxH }
-
-        val ix1 = x1.toInt().coerceIn(0, bitmap.width - 1)
-        val iy1 = y1.toInt().coerceIn(0, bitmap.height - 1)
-        val ix2 = x2.toInt().coerceIn(ix1 + 1, bitmap.width)
-        val iy2 = y2.toInt().coerceIn(iy1 + 1, bitmap.height)
-        return intArrayOf(ix1, iy1, ix2, iy2)
+        val out = Bitmap.createBitmap(INPUT_W, INPUT_H, Bitmap.Config.ARGB_8888)
+        Canvas(out).apply {
+            drawColor(Color.BLACK)
+            drawBitmap(bitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+        return out
     }
 
     private fun bitmapToChwBuffer(bitmap: Bitmap): FloatBuffer {
@@ -167,17 +234,24 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
         val pixels = IntArray(planeSize)
         bitmap.getPixels(pixels, 0, INPUT_W, 0, 0, INPUT_W, INPUT_H)
 
+        // RGB, NCHW. The model applies RGB->BGR and (x-mean)/std internally (see model.py).
+        // Its mean/std are 0-255 scale, so feed raw 0-255 unless FEED_NORMALIZED_0_1 is set.
+        val divisor = if (FEED_NORMALIZED_0_1) 255f else 1f
         val floatArray = FloatArray(3 * planeSize)
         for (i in 0 until planeSize) {
             val pixel = pixels[i]
-            floatArray[i] = ((pixel shr 16) and 0xFF) / 255f
-            floatArray[planeSize + i] = ((pixel shr 8) and 0xFF) / 255f
-            floatArray[2 * planeSize + i] = (pixel and 0xFF) / 255f
+            floatArray[i] = ((pixel shr 16) and 0xFF) / divisor
+            floatArray[planeSize + i] = ((pixel shr 8) and 0xFF) / divisor
+            floatArray[2 * planeSize + i] = (pixel and 0xFF) / divisor
         }
         return FloatBuffer.wrap(floatArray)
     }
 
-    /** Returns (argmax index, softmax probability at that index) for one keypoint's bins. */
+    /**
+     * Returns (argmax index, a confidence in (0,1]) for one keypoint's SimCC bins. The
+     * confidence is the softmax probability mass at the peak — a peakedness measure usable
+     * for thresholding out uncertain joints; it does not affect the decoded position.
+     */
     internal fun argmaxSoftmaxScore(logits: FloatArray): Pair<Int, Float> {
         var maxIdx = 0
         var maxVal = logits[0]
@@ -193,3 +267,11 @@ class RtmPoseOnnxEstimator(private val context: Context) : PoseEstimator {
         return maxIdx to confidence
     }
 }
+
+/** Center + scaled region size (original-image pixel space) that maps onto the 192x256 model input. */
+internal data class CenterScale(
+    val centerX: Float,
+    val centerY: Float,
+    val scaleW: Float,
+    val scaleH: Float
+)

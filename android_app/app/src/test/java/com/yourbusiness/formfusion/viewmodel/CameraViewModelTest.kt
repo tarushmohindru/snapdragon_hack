@@ -75,7 +75,7 @@ class CameraViewModelTest {
     @Test
     fun `onFrameAnalyzed with no persons increments frameCount and zeroes counts`() {
         val vm = newViewModel()
-        vm.onFrameAnalyzed(emptyList())
+        vm.onFrameAnalyzed(emptyList(), imageWidth = 480, imageHeight = 640)
         val state = vm.uiState.value
         assertEquals(1, state.frameCount)
         assertEquals(0, state.lastPersonCount)
@@ -85,8 +85,8 @@ class CameraViewModelTest {
     @Test
     fun `onFrameAnalyzed reflects only the most recent frame's counts, not a running total`() {
         val vm = newViewModel()
-        vm.onFrameAnalyzed(listOf(person(5), person(3)))
-        vm.onFrameAnalyzed(listOf(person(1)))
+        vm.onFrameAnalyzed(listOf(person(5), person(3)), imageWidth = 480, imageHeight = 640)
+        vm.onFrameAnalyzed(listOf(person(1)), imageWidth = 480, imageHeight = 640)
         val state = vm.uiState.value
         assertEquals(2, state.frameCount)
         assertEquals(1, state.lastPersonCount)
@@ -96,7 +96,7 @@ class CameraViewModelTest {
     @Test
     fun `onFrameAnalyzed sums keypoints across multiple persons in one frame`() {
         val vm = newViewModel()
-        vm.onFrameAnalyzed(listOf(person(5), person(3), person(0)))
+        vm.onFrameAnalyzed(listOf(person(5), person(3), person(0)), imageWidth = 480, imageHeight = 640)
         val state = vm.uiState.value
         assertEquals(3, state.lastPersonCount)
         assertEquals(8, state.lastKeypointCount)
@@ -105,7 +105,7 @@ class CameraViewModelTest {
     @Test
     fun `frameCount accumulates across many frames`() {
         val vm = newViewModel()
-        repeat(10) { vm.onFrameAnalyzed(emptyList()) }
+        repeat(10) { vm.onFrameAnalyzed(emptyList(), imageWidth = 480, imageHeight = 640) }
         assertEquals(10, vm.uiState.value.frameCount)
     }
 
@@ -119,16 +119,16 @@ class CameraViewModelTest {
     @Test
     fun `onFrameAnalyzed is ignored after endSession`() {
         val vm = newViewModel()
-        vm.onFrameAnalyzed(listOf(person(2)))
+        vm.onFrameAnalyzed(listOf(person(2)), imageWidth = 480, imageHeight = 640)
         vm.endSession()
-        vm.onFrameAnalyzed(listOf(person(2)))
+        vm.onFrameAnalyzed(listOf(person(2)), imageWidth = 480, imageHeight = 640)
         assertEquals(1, vm.uiState.value.frameCount)
     }
 
     @Test
     fun `endSession is idempotent when called twice`() {
         val vm = newViewModel()
-        vm.onFrameAnalyzed(listOf(person(2)))
+        vm.onFrameAnalyzed(listOf(person(2)), imageWidth = 480, imageHeight = 640)
         vm.endSession()
         val stateAfterFirst = vm.uiState.value
         vm.endSession()

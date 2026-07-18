@@ -18,6 +18,9 @@ data class CameraUiState(
     val frameCount: Int = 0,
     val lastPersonCount: Int = 0,
     val lastKeypointCount: Int = 0,
+    val lastPersons: List<PersonPose> = emptyList(),
+    val lastImageWidth: Int = 0,
+    val lastImageHeight: Int = 0,
     val isSessionActive: Boolean = true
 )
 
@@ -55,14 +58,17 @@ class CameraViewModel(
         }
     }
 
-    fun onFrameAnalyzed(persons: List<PersonPose>) {
+    fun onFrameAnalyzed(persons: List<PersonPose>, imageWidth: Int, imageHeight: Int) {
         if (!_uiState.value.isSessionActive) return
         sessionFrames.add(persons)
         _uiState.update {
             it.copy(
                 frameCount = it.frameCount + 1,
                 lastPersonCount = persons.size,
-                lastKeypointCount = persons.sumOf { p -> p.landmarks.size }
+                lastKeypointCount = persons.sumOf { p -> p.landmarks.size },
+                lastPersons = persons,
+                lastImageWidth = imageWidth,
+                lastImageHeight = imageHeight
             )
         }
     }

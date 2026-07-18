@@ -1,19 +1,18 @@
 package com.yourbusiness.formfusion.pose
 
 import android.content.Context
-import android.graphics.Bitmap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.mockito.Mockito.`when`
 import org.mockito.Mockito.mock
-import kotlin.math.abs
 
 /**
- * Covers the pure math in RtmPoseOnnxEstimator (aspect-ratio box fitting, SimCC argmax +
- * softmax decode) without touching ONNX Runtime — those internal functions only need a
- * Bitmap for its width/height, so a Mockito mock stands in for a real one.
+ * Covers the pure math in RtmPoseOnnxEstimator's mmpose top-down pipeline: box -> center/
+ * scale (1.25 padding + 192:256 aspect fix), the inverse affine that maps model-input
+ * pixels back to original-frame pixels, and the SimCC argmax + softmax decode. None of this
+ * touches ONNX Runtime or real Bitmap/Canvas warping (which need a device or Robolectric),
+ * only plain floats.
  */
 class RtmPoseOnnxEstimatorTest {
 
@@ -24,74 +23,91 @@ class RtmPoseOnnxEstimatorTest {
         estimator = RtmPoseOnnxEstimator(mock(Context::class.java))
     }
 
-    private fun bitmapOf(width: Int, height: Int): Bitmap {
-        val bitmap = mock(Bitmap::class.java)
-        `when`(bitmap.width).thenReturn(width)
-        `when`(bitmap.height).thenReturn(height)
-        return bitmap
-    }
-
     private val targetAspect = 192f / 256f
 
-    // ---- fitBoxToAspectRatio ----
+    // ---- computeCenterScale (mmpose GetBBoxCenterScale + aspect fix) ----
 
     @Test
-    fun `fitBoxToAspectRatio keeps a box already matching the target aspect ratio`() {
-        val bitmap = bitmapOf(1000, 1000)
-        val box = BoundingBox(400f, 400f, 550f, 600f, 0.9f) // 150x200 = 0.75 aspect already
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        val aspect = (x2 - x1).toFloat() / (y2 - y1).toFloat()
-        assertTrue(abs(aspect - targetAspect) < 0.02f)
+    fun `computeCenterScale places center at the box center`() {
+        val cs = estimator.computeCenterScale(BoundingBox(100f, 100f, 200f, 200f, 0.9f))
+        assertEquals(150f, cs.centerX, 1e-3f)
+        assertEquals(150f, cs.centerY, 1e-3f)
     }
 
     @Test
-    fun `fitBoxToAspectRatio grows height for a too-wide box`() {
-        val bitmap = bitmapOf(1000, 1000)
-        val box = BoundingBox(100f, 100f, 500f, 200f, 0.9f) // 400 wide, 100 tall
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        val w = x2 - x1
-        val h = y2 - y1
-        assertTrue(h > 100)
-        assertTrue(abs(w.toFloat() / h.toFloat() - targetAspect) < 0.05f)
+    fun `computeCenterScale applies the 1_25 padding before the aspect fix`() {
+        // 100x100 box -> padded 125x125; then aspect-fixed. 125 > 125*0.75 so height grows to
+        // 125/0.75 = 166.67, width stays 125 (the padded width).
+        val cs = estimator.computeCenterScale(BoundingBox(100f, 100f, 200f, 200f, 0.9f))
+        assertEquals(125f, cs.scaleW, 1e-2f)
+        assertEquals(166.667f, cs.scaleH, 1e-2f)
     }
 
     @Test
-    fun `fitBoxToAspectRatio grows width for a too-tall box`() {
-        val bitmap = bitmapOf(1000, 1000)
-        val box = BoundingBox(100f, 100f, 200f, 500f, 0.9f) // 100 wide, 400 tall
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        val w = x2 - x1
-        val h = y2 - y1
-        assertTrue(w > 100)
-        assertTrue(abs(w.toFloat() / h.toFloat() - targetAspect) < 0.05f)
+    fun `computeCenterScale output always has the model's 192 to 256 aspect ratio`() {
+        val boxes = listOf(
+            BoundingBox(0f, 0f, 100f, 100f, 1f),
+            BoundingBox(10f, 10f, 300f, 60f, 1f),   // wide
+            BoundingBox(10f, 10f, 60f, 400f, 1f)    // tall
+        )
+        boxes.forEach { box ->
+            val cs = estimator.computeCenterScale(box)
+            assertEquals(targetAspect, cs.scaleW / cs.scaleH, 1e-3f)
+        }
     }
 
     @Test
-    fun `fitBoxToAspectRatio clamps to bitmap bounds for a box bigger than the frame`() {
-        val bitmap = bitmapOf(200, 200)
-        val box = BoundingBox(-50f, -50f, 250f, 250f, 0.9f)
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        assertTrue(x1 >= 0 && y1 >= 0)
-        assertTrue(x2 <= 200 && y2 <= 200)
-        assertTrue(x2 > x1 && y2 > y1)
+    fun `computeCenterScale grows height for a wide box`() {
+        val cs = estimator.computeCenterScale(BoundingBox(100f, 100f, 300f, 150f, 0.9f))
+        // padded w=250, h=62.5; wider than target so height grows, width stays 250.
+        assertEquals(250f, cs.scaleW, 1e-2f)
+        assertTrue(cs.scaleH > 62.5f)
     }
 
     @Test
-    fun `fitBoxToAspectRatio handles a zero-height box without dividing by zero`() {
-        val bitmap = bitmapOf(1000, 1000)
-        val box = BoundingBox(100f, 100f, 200f, 100f, 0.9f) // y1 == y2
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        assertTrue(x2 > x1)
-        assertTrue(y2 > y1)
+    fun `computeCenterScale grows width for a tall box`() {
+        val cs = estimator.computeCenterScale(BoundingBox(100f, 100f, 150f, 400f, 0.9f))
+        // padded w=62.5, h=375; taller than target so width grows, height stays 375.
+        assertEquals(375f, cs.scaleH, 1e-2f)
+        assertTrue(cs.scaleW > 62.5f)
+    }
+
+    // ---- inputToOriginal (inverse affine) ----
+
+    @Test
+    fun `inputToOriginal maps model-input origin to the region's top-left corner`() {
+        val cs = CenterScale(centerX = 150f, centerY = 150f, scaleW = 120f, scaleH = 160f)
+        val (x, y) = estimator.inputToOriginal(0f, 0f, cs)
+        assertEquals(150f - 60f, x, 1e-3f)
+        assertEquals(150f - 80f, y, 1e-3f)
     }
 
     @Test
-    fun `fitBoxToAspectRatio never returns a degenerate rect for a tiny box`() {
-        val bitmap = bitmapOf(1000, 1000)
-        val box = BoundingBox(500f, 500f, 501f, 501f, 0.9f)
-        val (x1, y1, x2, y2) = estimator.fitBoxToAspectRatio(bitmap, box)
-        assertTrue(x2 > x1)
-        assertTrue(y2 > y1)
+    fun `inputToOriginal maps the model-input far corner to the region's bottom-right corner`() {
+        val cs = CenterScale(centerX = 150f, centerY = 150f, scaleW = 120f, scaleH = 160f)
+        val (x, y) = estimator.inputToOriginal(192f, 256f, cs)
+        assertEquals(150f + 60f, x, 1e-3f)
+        assertEquals(150f + 80f, y, 1e-3f)
+    }
+
+    @Test
+    fun `inputToOriginal maps the model-input center to the box center`() {
+        val cs = estimator.computeCenterScale(BoundingBox(100f, 100f, 200f, 200f, 0.9f))
+        val (x, y) = estimator.inputToOriginal(96f, 128f, cs) // 192/2, 256/2
+        assertEquals(150f, x, 1e-2f)
+        assertEquals(150f, y, 1e-2f)
+    }
+
+    @Test
+    fun `inputToOriginal is a linear ramp across the input width`() {
+        val cs = CenterScale(centerX = 100f, centerY = 100f, scaleW = 192f, scaleH = 256f)
+        // scale == input size, center 100,100 -> origin at (4,-28)
+        val (x0, _) = estimator.inputToOriginal(0f, 0f, cs)
+        val (x1, _) = estimator.inputToOriginal(96f, 0f, cs)
+        val (x2, _) = estimator.inputToOriginal(192f, 0f, cs)
+        assertEquals(4f, x0, 1e-3f)
+        assertEquals(100f, x1, 1e-3f)
+        assertEquals(196f, x2, 1e-3f)
     }
 
     // ---- argmaxSoftmaxScore ----
