@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from src.calibration.calibrate import calibrate_camera
+from src.calibration.charuco_calibrate import calibrate_charuco_pair
 from src.calibration.stereo_calibrate import stereo_calibrate
 from src.contracts import ProjectionCalibration
 
@@ -82,6 +83,24 @@ class CalibrationStore:
             raise ValueError(f"need {minimum_pairs} paired captures; found {len(common)}")
         paths_a = [Path(index[device_a][pair_id]) for pair_id in common]
         paths_b = [Path(index[device_b][pair_id]) for pair_id in common]
+        paired_paths = list(zip(paths_a, paths_b, strict=True))
+        charuco = calibrate_charuco_pair(paired_paths)
+        if charuco is not None:
+            calibration = ProjectionCalibration(
+                calibration_id=f"charuco-{uuid.uuid4()}",
+                device_a=device_a,
+                device_b=device_b,
+                camera_matrix_a=np.asarray(charuco["camera_matrix_a"]).tolist(),
+                distortion_a=np.asarray(charuco["distortion_a"]).reshape(-1).tolist(),
+                camera_matrix_b=np.asarray(charuco["camera_matrix_b"]).tolist(),
+                distortion_b=np.asarray(charuco["distortion_b"]).reshape(-1).tolist(),
+                rotation_a_to_b=np.asarray(charuco["rotation_a_to_b"]).tolist(),
+                translation_a_to_b=np.asarray(charuco["translation_a_to_b"]).reshape(-1).tolist(),
+                units="centimeters",
+                reprojection_error=None,
+            )
+            self.save(session_id, calibration)
+            return calibration
         try:
             intrinsics_a = calibrate_camera(paths_a, checkerboard, square_size, minimum_pairs)
             intrinsics_b = calibrate_camera(paths_b, checkerboard, square_size, minimum_pairs)
@@ -120,7 +139,7 @@ class CalibrationStore:
             self.save(session_id, calibration)
             return calibration
         stereo = stereo_calibrate(
-            list(zip(paths_a, paths_b, strict=True)),
+            paired_paths,
             {
                 "camera_matrix": np.asarray(intrinsics_a["camera_matrix"]),
                 "dist_coeffs": np.asarray(intrinsics_a["dist_coeffs"]),
