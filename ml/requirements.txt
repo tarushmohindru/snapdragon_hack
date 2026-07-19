@@ -1,0 +1,6 @@
+numpy
+opencv-python
+python-dotenv
+requests
+pytest
+
