@@ -64,7 +64,14 @@ function StageMessage({ title, detail }: { title: string; detail: string }) {
 
 function formatExercise(value?: string) {
   if (!value) return "Exercise not selected";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const labels: Record<string, string> = {
+    squats: "Squats",
+    deadlifts: "Deadlifts",
+    bench_press: "Bench press",
+    bicep_curls: "Bicep curls",
+    shoulder_press: "Shoulder press",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
 }
 
 export function Dashboard() {

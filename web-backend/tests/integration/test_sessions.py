@@ -1,5 +1,5 @@
 def test_create_join_status_close_and_delete(client) -> None:
-    created = client.post("/api/v1/sessions", json={"exercise": "left_bicep_curl"})
+    created = client.post("/api/v1/sessions", json={"exercise": "bicep_curls"})
     assert created.status_code == 201
     session = created.json()
     assert "host_token" not in session

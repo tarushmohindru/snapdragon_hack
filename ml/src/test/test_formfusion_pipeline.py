@@ -58,13 +58,13 @@ def test_pipeline_returns_world_xyz_confidence_and_source_metadata() -> None:
 
     request = ReconstructionRequest(
         session_id="session-1",
-        exercise="left_bicep_curl",
+        exercise="bicep_curls",
         observations=[
             observation("phone-a", projection_a, 10, 1_000),
             observation("phone-b", projection_b, 20, 1_012),
         ],
     )
-    result = FormFusionPipeline("session-1", "left_bicep_curl", calibration, 0.1).process(request)
+    result = FormFusionPipeline("session-1", "bicep_curls", calibration, 0.1).process(request)
 
     assert set(result.joints_3d) == {"5", "7", "9"}
     assert result.joints_3d["7"].x == pytest.approx(points[7][0], abs=1e-7)
