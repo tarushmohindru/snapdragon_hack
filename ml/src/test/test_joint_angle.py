@@ -1,4 +1,5 @@
 import numpy as np
+
 from src.biomechanics.joint_angle import calculate_angle_3d
 
 

@@ -80,7 +80,7 @@ fun JoinLobbyScreen(
             ) {
                 StatusChip(text = "Connection lost", tone = StatusTone.Error)
                 Text(
-                    text = "Tap retry to reconnect",
+                    text = uiState.error ?: "Tap retry to reconnect",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = Spacing.sm)
@@ -118,7 +118,7 @@ fun JoinLobbyScreen(
                     modifier = Modifier.padding(bottom = Spacing.md)
                 )
                 Text(
-                    text = "Waiting for host to start...",
+                    text = "Joining backend session...",
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.alpha(pulseAlpha)
                 )

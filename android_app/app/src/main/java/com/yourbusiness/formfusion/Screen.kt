@@ -4,8 +4,8 @@ enum class Screen {
     Home,
     Camera,
     SessionSummary,
-    MultiPhonePlaceholder,
     Role,
     Host,
-    JoinLobby
+    JoinLobby,
+    Calibration
 }

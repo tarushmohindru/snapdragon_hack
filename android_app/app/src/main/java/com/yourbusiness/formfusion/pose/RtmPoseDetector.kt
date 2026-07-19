@@ -22,7 +22,7 @@ class RtmPoseDetector(private val context: Context) : PoseDetector {
             handle = PoseNative.init(detPath, posePath, nativeLibDir)
             handle != 0L
         } catch (e: Exception) {
-            Log.w("RtmPoseDetector", "libpose.so or model files not present yet, staying on stub", e)
+            Log.w("RtmPoseDetector", "native pose runtime is unavailable", e)
             false
         }
     }

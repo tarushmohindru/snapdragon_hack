@@ -1,12 +1,13 @@
-import cv2
-import os 
+import os
 
-CAMERA_SOURCE = 0 #For phone paste the steaming URL
+import cv2
+
+CAMERA_SOURCE = 0  # For phone paste the steaming URL
 
 DEVICE_ID = "deviceA"
 
 SAVE_DIR = f"calib_images_{DEVICE_ID}"
-os.makedirs(SAVE_DIR,exist_ok=True)
+os.makedirs(SAVE_DIR, exist_ok=True)
 
 cap = cv2.VideoCapture(CAMERA_SOURCE)
 
@@ -24,20 +25,20 @@ while True:
     if not ret:
         break
 
-    cv2.imshow(f'Calibration Capture - {DEVICE_ID}',frame)
+    cv2.imshow(f"Calibration Capture - {DEVICE_ID}", frame)
     k = cv2.waitKey(1)
     # esc to close the camera window
-    if k%256 == 27:
+    if k % 256 == 27:
         print("Closing the Capture")
         break
-    
+
     # s buttion to take pictures
-    elif k%256 == ord('s'):
-        img_name = os.path.join(SAVE_DIR,"frame_{}.png".format(img_counter))
-        cv2.imwrite(img_name,frame)
-        print('{} written!'.format(img_name))
+    elif k % 256 == ord("s"):
+        img_name = os.path.join(SAVE_DIR, f"frame_{img_counter}.png")
+        cv2.imwrite(img_name, frame)
+        print(f"{img_name} written!")
         img_counter += 1
-    
+
 cap.release()
 cv2.destroyAllWindows()
 print(f"Captured {img_counter} images total for {DEVICE_ID}.")

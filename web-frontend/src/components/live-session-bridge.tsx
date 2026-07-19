@@ -34,7 +34,6 @@ export function LiveSessionBridge({ config }: { config: ConnectionConfig | null 
   const { lastJsonMessage, readyState, sendJsonMessage } = useWebSocket<SocketMessage>(
     config ? socketUrl(config) : null,
     {
-      queryParams: config ? { token: config.token } : undefined,
       share: true,
       retryOnError: true,
       reconnectAttempts: 20,
@@ -54,7 +53,7 @@ export function LiveSessionBridge({ config }: { config: ConnectionConfig | null 
       onError: () => setError("The live connection failed. Reconnecting automatically."),
       onReconnectStop: () => {
         setPhase("error");
-        setError("Reconnect limit reached. Verify the session credentials and try again.");
+        setError("Reconnect limit reached. Verify the backend URL and session ID.");
       },
     },
     config !== null,

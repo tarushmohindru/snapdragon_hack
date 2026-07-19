@@ -41,3 +41,13 @@ class CalibrationFailed(DomainError):
 class PayloadTooLarge(DomainError):
     code = "payload_too_large"
     status_code = 413
+
+
+class MlServiceUnavailable(DomainError):
+    code = "ml_service_unavailable"
+    status_code = 503
+
+
+class MlServiceRejected(DomainError):
+    code = "ml_service_rejected"
+    status_code = 422

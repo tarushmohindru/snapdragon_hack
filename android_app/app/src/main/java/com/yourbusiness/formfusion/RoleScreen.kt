@@ -12,6 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.yourbusiness.formfusion.ui.components.PrimaryButton
@@ -19,6 +22,7 @@ import com.yourbusiness.formfusion.ui.components.SecondaryButton
 import com.yourbusiness.formfusion.ui.components.SectionHeader
 import com.yourbusiness.formfusion.ui.components.TertiaryTextButton
 import com.yourbusiness.formfusion.ui.theme.Spacing
+import com.yourbusiness.formfusion.network.SessionManager
 import com.yourbusiness.formfusion.viewmodel.RoleEvent
 import com.yourbusiness.formfusion.viewmodel.RoleViewModel
 
@@ -31,6 +35,7 @@ fun RoleScreen(
 ) {
     val context = LocalContext.current
     val viewModel = remember { RoleViewModel() }
+    var exercise by remember { mutableStateOf(SessionManager.exercise) }
 
     DisposableEffect(viewModel) {
         onDispose { viewModel.dispose() }
@@ -53,16 +58,31 @@ fun RoleScreen(
         verticalArrangement = Arrangement.Center
     ) {
         SectionHeader(
-            title = "Start with Other Phones",
-            subtitle = "Host a multi-angle session or join one nearby"
+            title = "Choose exercise",
+            subtitle = "The same selection drives biomechanics on web and mobile"
         )
+
+        listOf(
+            "left_bicep_curl" to "Bicep curl",
+            "right_bicep_curl" to "Right bicep curl",
+            "squat" to "Squat",
+        ).forEach { (id, label) ->
+            SecondaryButton(
+                text = if (exercise == id) "✓ $label" else label,
+                onClick = {
+                    exercise = id
+                    SessionManager.exercise = id
+                },
+                modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm)
+            )
+        }
 
         PrimaryButton(
             text = "Host Session",
             onClick = onHost,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = Spacing.xxl)
+                .padding(top = Spacing.xl)
         )
 
         SecondaryButton(

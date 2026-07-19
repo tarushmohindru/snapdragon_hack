@@ -43,18 +43,21 @@ fun FormFusionApp() {
             durationSeconds = lastSessionDurationSeconds,
             onDone = { currentScreen = Screen.Home }
         )
-        Screen.MultiPhonePlaceholder -> MultiPhonePlaceholderScreen(onBack = { currentScreen = Screen.Home })
         Screen.Role -> RoleScreen(
             onHost = { currentScreen = Screen.Host },
             onJoin = { currentScreen = Screen.JoinLobby },
             onBack = { currentScreen = Screen.Home }
         )
         Screen.Host -> HostScreen(
-            onSessionStarted = { currentScreen = Screen.Camera },
+            onSessionStarted = { currentScreen = Screen.Calibration },
             onBack = { currentScreen = Screen.Home }
         )
         Screen.JoinLobby -> JoinLobbyScreen(
-            onSessionStarted = { currentScreen = Screen.Camera },
+            onSessionStarted = { currentScreen = Screen.Calibration },
+            onLeave = { currentScreen = Screen.Home }
+        )
+        Screen.Calibration -> CalibrationScreen(
+            onComplete = { currentScreen = Screen.Camera },
             onLeave = { currentScreen = Screen.Home }
         )
     }

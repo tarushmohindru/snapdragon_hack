@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.yourbusiness.formfusion.ui.components.PrimaryButton
 import com.yourbusiness.formfusion.ui.components.SummaryMetric
 import com.yourbusiness.formfusion.ui.theme.Spacing
+import com.yourbusiness.formfusion.network.SessionManager
 import com.yourbusiness.formfusion.ui.theme.Success
 import com.yourbusiness.formfusion.user.UserProfile
 
@@ -77,6 +78,15 @@ fun SessionSummaryScreen(durationSeconds: Long, onDone: () -> Unit) {
                     value = formatSessionDuration(durationSeconds),
                     modifier = Modifier.padding(top = Spacing.xxl)
                 )
+
+                SessionManager.aiSummary.value?.let { summary ->
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = Spacing.lg)
+                    )
+                }
 
                 PrimaryButton(
                     text = "Done",

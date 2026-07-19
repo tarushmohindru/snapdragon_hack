@@ -21,6 +21,7 @@ type LiveSessionState = {
   setError: (error: string | null) => void;
   setSocketStatus: (status: SessionSocketStatus) => void;
   applyResult: (result: PoseResult) => void;
+  hydrateResults: (results: PoseResult[]) => void;
   reset: () => void;
   clearHistory: () => void;
 };
@@ -49,12 +50,12 @@ export const useLiveSessionStore = create<LiveSessionState>((set) => ({
     set((state) => {
       const connectedAt = state.connectedAt ?? Date.now();
       const sample: AngleSample | null =
-        latest.joint_angle_degrees === null
+        latest.primary_angle_degrees === null
           ? null
           : {
               capturedAt: latest.captured_at_ms,
               elapsedSeconds: Math.max(0, (latest.captured_at_ms - connectedAt) / 1000),
-              angle: latest.joint_angle_degrees,
+              angle: latest.primary_angle_degrees,
               rep: latest.rep_count,
               quality: latest.form_quality,
             };
@@ -68,7 +69,27 @@ export const useLiveSessionStore = create<LiveSessionState>((set) => ({
           : state.history,
       };
     }),
+  hydrateResults: (results) =>
+    set((state) => {
+      if (!results.length || state.latest) return state;
+      const firstCapturedAt = results[0].captured_at_ms;
+      const history = results.flatMap((result) =>
+        result.primary_angle_degrees === null
+          ? []
+          : [{
+              capturedAt: result.captured_at_ms,
+              elapsedSeconds: Math.max(0, (result.captured_at_ms - firstCapturedAt) / 1000),
+              angle: result.primary_angle_degrees,
+              rep: result.rep_count,
+              quality: result.form_quality,
+            }],
+      );
+      return {
+        ...state,
+        latest: results.at(-1) ?? null,
+        history: history.slice(-MAX_HISTORY_SAMPLES),
+      };
+    }),
   reset: () => set(initialState),
   clearHistory: () => set({ history: [] }),
 }));
-

@@ -14,7 +14,7 @@ from formfusion.contracts.websocket import (
     PoseFrame,
     StatusMessage,
 )
-from formfusion.domain.errors import CalibrationRequired, DomainError, Unauthorized
+from formfusion.domain.errors import DomainError, Unauthorized
 from formfusion.metrics import (
     ACTIVE_WEBSOCKETS,
     FRAMES_DROPPED,
@@ -33,22 +33,15 @@ async def _send_error(websocket: WebSocket, code: str, message: str) -> None:
 
 
 @router.websocket("/api/v1/ws/sessions/{session_id}")
-async def session_websocket(
-    websocket: WebSocket, session_id: str, token: str | None = None
-) -> None:
-    token_service = websocket.app.state.tokens
-    session_service = websocket.app.state.sessions
+async def session_websocket(websocket: WebSocket, session_id: str) -> None:
+    sessions = websocket.app.state.sessions
     registry = websocket.app.state.runtimes
     manager = websocket.app.state.connections
+    ml = websocket.app.state.ml
     connection_id = str(uuid.uuid4())
 
     try:
-        if not token:
-            raise Unauthorized("token query parameter is required")
-        claims = token_service.verify(token)
-        if claims.session_id != session_id:
-            raise Unauthorized("token does not belong to this session")
-        await session_service.get_record(session_id)
+        record = await sessions.get_record(session_id, allow_closed=False)
     except DomainError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -56,22 +49,24 @@ async def session_websocket(
     await websocket.accept()
     await manager.register(session_id, websocket)
     ACTIVE_WEBSOCKETS.inc()
-    log.info(
-        "websocket_connected", connection_id=connection_id, session_id=session_id, role=claims.role
-    )
 
     try:
-        raw_hello = await websocket.receive_json()
-        hello = DeviceHello.model_validate(raw_hello)
+        hello = DeviceHello.model_validate(await websocket.receive_json())
         if hello.session_id != session_id:
             raise Unauthorized("hello session does not match URL")
-        if claims.role is ClientRole.DEVICE:
-            if hello.role is not ClientRole.DEVICE or hello.device_id != claims.device_id:
-                raise Unauthorized("device identity does not match token")
-        elif hello.role not in {ClientRole.HOST, ClientRole.DASHBOARD}:
-            raise Unauthorized("host token may connect only as host or dashboard")
+        if hello.role is ClientRole.DEVICE:
+            if hello.device_id is None or hello.device_id not in record.devices:
+                raise Unauthorized("device must join the session before streaming")
+        elif hello.device_id is not None:
+            raise Unauthorized("dashboard and host connections do not send a device_id")
 
-        record = await session_service.get_record(session_id)
+        log.info(
+            "websocket_connected",
+            connection_id=connection_id,
+            session_id=session_id,
+            role=hello.role,
+            device_id=hello.device_id,
+        )
         await websocket.send_json(
             StatusMessage(
                 session_id=session_id,
@@ -93,15 +88,15 @@ async def session_websocket(
                     websocket, "unsupported_message", "unsupported WebSocket message type"
                 )
                 continue
-            if claims.role is not ClientRole.DEVICE:
+            if hello.role is not ClientRole.DEVICE or hello.device_id is None:
                 await _send_error(
-                    websocket, "forbidden", "only device connections may send pose frames"
+                    websocket, "forbidden", "only joined devices may send pose frames"
                 )
                 continue
 
             frame = PoseFrame.model_validate(raw)
-            if frame.session_id != session_id or frame.device_id != claims.device_id:
-                raise Unauthorized("frame identity does not match token")
+            if frame.session_id != session_id or frame.device_id != hello.device_id:
+                raise Unauthorized("frame identity does not match the connection hello")
 
             FRAMES_RECEIVED.inc()
             runtime = await registry.get(session_id)
@@ -121,18 +116,18 @@ async def session_websocket(
             )
             started = time.perf_counter()
             try:
-                result = runtime.pipeline.process(outcome.pair)
-            except CalibrationRequired as exc:
-                await _send_error(websocket, exc.code, str(exc))
-                continue
+                fresh_record = await sessions.get_record(session_id, allow_closed=False)
+                result = await ml.reconstruct(session_id, fresh_record.exercise, outcome.pair)
             finally:
                 PIPELINE_SECONDS.observe(time.perf_counter() - started)
-            await manager.broadcast(session_id, result.model_dump(mode="json"))
+            payload = result.model_dump(mode="json")
+            await sessions.repository.save_result(session_id, payload)
+            await manager.broadcast(session_id, payload)
 
     except ValidationError as exc:
         await _send_error(websocket, "validation_error", str(exc))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-    except Unauthorized as exc:
+    except DomainError as exc:
         await _send_error(websocket, exc.code, str(exc))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
     except WebSocketDisconnect:

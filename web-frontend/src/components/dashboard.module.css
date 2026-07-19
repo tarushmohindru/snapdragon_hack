@@ -69,7 +69,7 @@
 .status_error { background: var(--coral); }
 .connectionAction { margin-left: auto; color: var(--periwinkle); font: 500 8px var(--font-mono); letter-spacing: 0.11em; text-transform: uppercase; }
 .connectionBody { border-top: 1px solid var(--hairline); padding: 18px; }
-.connectionForm { display: grid; grid-template-columns: 1.05fr 1fr 1.4fr auto; gap: 12px; align-items: start; }
+.connectionForm { display: grid; grid-template-columns: 1.05fr 1fr auto; gap: 12px; align-items: start; }
 .connectionForm label { display: grid; gap: 7px; color: var(--bone-dim); font: 500 8px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
 .connectionForm input {
   width: 100%;
@@ -85,9 +85,6 @@
 }
 .connectionForm input::placeholder { color: #6f687d; }
 .connectionForm em { color: var(--coral); font: 400 8px var(--font-mono); text-transform: none; letter-spacing: 0; }
-.tokenField { position: relative; }
-.tokenField input { padding-right: 42px; }
-.tokenField button { position: absolute; right: 5px; top: 6px; width: 32px; height: 32px; border: 0; color: var(--bone-dim); background: transparent; cursor: pointer; }
 .primaryButton, .secondaryButton, .ghostButton {
   border: 0;
   display: inline-flex;
@@ -293,6 +290,19 @@
 .chartEmpty strong { margin-top: 10px; font: 500 26px var(--font-display); letter-spacing: -.04em; }
 .chartEmpty p { margin: 7px 0 0; color: var(--bone-dim); font: 400 9px var(--font-mono); }
 
+.intelligenceSection { display: grid; grid-template-columns: 1.2fr 1fr 1fr; border: 1px solid var(--hairline); border-top: 0; }
+.intelligenceSection > * { min-height: 290px; padding: 32px 28px; border-right: 1px solid var(--hairline); }
+.intelligenceSection > *:last-child { border-right: 0; }
+.intelligenceHeading h2 { margin: 18px 0; font: 500 43px/.88 var(--font-display); letter-spacing: -.06em; }
+.intelligenceHeading p, .intelligenceCard p { color: var(--bone-dim); font-size: 10px; line-height: 1.75; }
+.intelligenceCard { display: flex; flex-direction: column; align-items: flex-start; }
+.intelligenceCard > svg { color: var(--mint); }
+.intelligenceCard > span { margin-top: 18px; color: var(--periwinkle); font: 500 8px var(--font-mono); letter-spacing: .14em; }
+.intelligenceCard p { flex: 1; margin: 17px 0; color: var(--bone); font: 400 17px/1.45 var(--font-editorial); }
+.intelligenceCard small { margin-bottom: 14px; color: var(--coral); font: 400 8px/1.5 var(--font-mono); }
+.intelligenceCard button { min-height: 38px; border: 1px solid var(--hairline-bright); padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; color: var(--mint); background: rgba(115,239,208,.04); font: 500 8px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.intelligenceCard button:disabled { opacity: .35; cursor: default; }
+
 .footer { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #766f83; font: 400 7px var(--font-mono); letter-spacing: .12em; }
 .spin { animation: spin .9s linear infinite; }
 
@@ -320,6 +330,9 @@
   .instrumentRail > section { min-height: 210px; border-right: 1px solid var(--hairline); }
   .instrumentRail > section:nth-child(even) { border-right: 0; }
   .traceSection { grid-template-columns: 1fr; }
+  .intelligenceSection { grid-template-columns: 1fr; }
+  .intelligenceSection > * { min-height: auto; border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .intelligenceSection > *:last-child { border-bottom: 0; }
   .traceCopy { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .chartPanel { min-height: 330px; }
 }

@@ -1,7 +1,6 @@
 export type ConnectionConfig = {
   backendUrl: string;
   sessionId: string;
-  token: string;
 };
 
 export type ConnectionPhase =
@@ -16,16 +15,40 @@ export type PoseResult = {
   schema_version: 1;
   type: "pose.result";
   session_id: string;
-  source_frame_ids: Record<string, number>;
   captured_at_ms: number;
-  joints_3d: Record<string, [number, number, number]>;
-  joint_angle_degrees: number | null;
+  joints_3d: Record<string, Joint3D>;
+  angles: AngleMetric[];
+  primary_angle_degrees: number | null;
   rep_count: number;
-  state: string;
-  pairing_delta_ms: number;
-  reprojection_error: number | null;
-  form_quality?: "good" | "check" | "unknown";
+  movement_state: string;
+  form_quality: "good" | "check" | "unknown";
   form_feedback?: string | null;
+  metadata: ResultMetadata;
+};
+
+export type Joint3D = {
+  x: number;
+  y: number;
+  z: number;
+  confidence: number;
+  observations: number;
+};
+
+export type AngleMetric = {
+  name: string;
+  degrees: number;
+  joint_ids: [number, number, number];
+};
+
+export type ResultMetadata = {
+  coordinate_system: string;
+  units: string;
+  calibration_id: string;
+  reprojection_error: number | null;
+  source_frame_ids: Record<string, number>;
+  source_timestamps_ms: Record<string, number>;
+  pairing_delta_ms: number;
+  processing_time_ms: number;
 };
 
 export type SessionStatus = {
@@ -33,7 +56,30 @@ export type SessionStatus = {
   exercise: string;
   device_ids: string[];
   calibrated: boolean;
+  calibration_reprojection_error: number | null;
+  latest_result_at: string | null;
+  started_at: string;
+  ended_at: string | null;
   expires_at: string;
+};
+
+export type AiResponse = { text: string; provider: string; model: string };
+
+export type SessionSummary = {
+  session_id: string;
+  exercise: string;
+  duration_seconds: number;
+  total_reps: number;
+  angle_min: number | null;
+  angle_max: number | null;
+  ai_summary: string | null;
+  started_at: string;
+  ended_at: string | null;
+};
+
+export type SessionResults = {
+  session_id: string;
+  results: PoseResult[];
 };
 
 export type SocketError = {
@@ -66,4 +112,3 @@ export type AngleSample = {
   rep: number;
   quality: PoseResult["form_quality"];
 };
-

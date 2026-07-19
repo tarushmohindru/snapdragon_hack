@@ -65,15 +65,41 @@ class FrameAck(StrictModel):
     status: Literal["queued", "paired", "dropped"]
 
 
+class Joint3D(StrictModel):
+    x: float
+    y: float
+    z: float
+    confidence: float
+    observations: int
+
+
+class AngleMetric(StrictModel):
+    name: str
+    degrees: float
+    joint_ids: tuple[int, int, int]
+
+
+class ResultMetadata(StrictModel):
+    coordinate_system: str
+    units: str
+    calibration_id: str
+    reprojection_error: float | None
+    source_frame_ids: dict[str, int]
+    source_timestamps_ms: dict[str, int]
+    pairing_delta_ms: int
+    processing_time_ms: float
+
+
 class PoseResult(StrictModel):
     schema_version: Literal[1] = 1
     type: Literal["pose.result"] = "pose.result"
     session_id: str
-    source_frame_ids: dict[str, int]
     captured_at_ms: int
-    joints_3d: dict[str, list[float]]
-    joint_angle_degrees: float | None = None
-    rep_count: int = 0
-    state: str = "unknown"
-    pairing_delta_ms: int
-    reprojection_error: float | None = None
+    joints_3d: dict[str, Joint3D]
+    angles: list[AngleMetric]
+    primary_angle_degrees: float | None
+    rep_count: int
+    movement_state: str
+    form_quality: Literal["good", "check", "unknown"]
+    form_feedback: str | None = None
+    metadata: ResultMetadata

@@ -1,8 +1,9 @@
 "use client";
 
-import { skipToken, useQuery } from "@tanstack/react-query";
+import { skipToken, useMutation, useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  BrainCircuit,
   Camera,
   Check,
   ChevronRight,
@@ -14,16 +15,22 @@ import {
   RefreshCcw,
   ScanLine,
   ShieldCheck,
+  Sparkles,
   TriangleAlert,
   Waves,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useInterval } from "usehooks-ts";
 
 import type { ConnectionConfig } from "@/lib/contracts";
-import { sessionQueryOptions } from "@/lib/session-query";
+import {
+  requestFeedback,
+  requestSummary,
+  sessionResultsQueryOptions,
+  sessionQueryOptions,
+} from "@/lib/session-query";
 import { useLiveSessionStore } from "@/store/live-session";
 import { AngleHistoryChart } from "./angle-history-chart";
 import { ConnectionPanel } from "./connection-panel";
@@ -70,6 +77,7 @@ export function Dashboard() {
   const lastMessageAt = useLiveSessionStore((state) => state.lastMessageAt);
   const reset = useLiveSessionStore((state) => state.reset);
   const clearHistory = useLiveSessionStore((state) => state.clearHistory);
+  const hydrateResults = useLiveSessionStore((state) => state.hydrateResults);
 
   useInterval(() => setNow(Date.now()), 1_000);
 
@@ -79,6 +87,26 @@ export function Dashboard() {
       : { queryKey: ["session", "inactive"], queryFn: skipToken },
   );
   const session = sessionQuery.data;
+  const resultsQuery = useQuery(
+    config
+      ? sessionResultsQueryOptions(config)
+      : { queryKey: ["session-results", "inactive"], queryFn: skipToken },
+  );
+  useEffect(() => {
+    if (resultsQuery.data) hydrateResults(resultsQuery.data.results);
+  }, [hydrateResults, resultsQuery.data]);
+  const feedbackMutation = useMutation({
+    mutationFn: () => {
+      if (!config) throw new Error("Connect a session first.");
+      return requestFeedback(config);
+    },
+  });
+  const summaryMutation = useMutation({
+    mutationFn: () => {
+      if (!config) throw new Error("Connect a session first.");
+      return requestSummary(config);
+    },
+  });
   const dataAge = lastMessageAt ? now - lastMessageAt : null;
   const stale = dataAge !== null && dataAge > 3_000;
   const devices = session?.device_ids.length ?? 0;
@@ -211,10 +239,10 @@ export function Dashboard() {
             <div className={styles.angleOverlay}>
               <span>PRIMARY ANGLE</span>
               <div>
-                <strong>{latest?.joint_angle_degrees?.toFixed(1) ?? "—"}</strong>
+                <strong>{latest?.primary_angle_degrees?.toFixed(1) ?? "—"}</strong>
                 <small>°</small>
               </div>
-              <p>{latest ? latest.state : "No movement state"}</p>
+              <p>{latest ? latest.movement_state : "No movement state"}</p>
             </div>
 
             <div className={styles.sceneCompass}>
@@ -226,7 +254,7 @@ export function Dashboard() {
           <div className={styles.stageFootline}>
             <span><Radio size={13} /> {latest ? `${jointCount} spatial joints` : "No pose frame"}</span>
             <span><Clock3 size={13} /> {latest ? new Date(latest.captured_at_ms).toLocaleTimeString() : "Awaiting timestamp"}</span>
-            <span><Waves size={13} /> {latest ? `${latest.pairing_delta_ms} ms stereo delta` : "Pairing inactive"}</span>
+            <span><Waves size={13} /> {latest ? `${latest.metadata.pairing_delta_ms} ms stereo delta` : "Pairing inactive"}</span>
           </div>
         </article>
 
@@ -274,18 +302,18 @@ export function Dashboard() {
             <div className={styles.errorReadout}>
               <span>REPROJECTION ERROR</span>
               <div>
-                <strong>{latest?.reprojection_error?.toFixed(4) ?? "—"}</strong>
+                <strong>{latest?.metadata.reprojection_error?.toFixed(4) ?? session?.calibration_reprojection_error?.toFixed(4) ?? "—"}</strong>
                 <small>PX</small>
               </div>
             </div>
 
             <div className={styles.signalBar}>
-              <span style={{ width: latest?.reprojection_error !== null && latest?.reprojection_error !== undefined ? `${Math.max(4, Math.min(100, 100 - latest.reprojection_error * 40))}%` : "0%" }} />
+              <span style={{ width: latest?.metadata.reprojection_error !== null && latest?.metadata.reprojection_error !== undefined ? `${Math.max(4, Math.min(100, 100 - latest.metadata.reprojection_error * 40))}%` : "0%" }} />
             </div>
 
             <div className={styles.calibrationRows}>
               <div><Camera size={14} /><span>Camera array</span><strong>{devices}/2</strong></div>
-              <div><Waves size={14} /><span>Stereo delta</span><strong>{latest ? `${latest.pairing_delta_ms} ms` : "—"}</strong></div>
+              <div><Waves size={14} /><span>Stereo delta</span><strong>{latest ? `${latest.metadata.pairing_delta_ms} ms` : "—"}</strong></div>
               <div><CircleGauge size={14} /><span>Calibration</span><strong>{session?.calibrated ? "Ready" : "Not ready"}</strong></div>
             </div>
           </section>
@@ -308,6 +336,40 @@ export function Dashboard() {
           </div>
           <div className={styles.chartWrap}><AngleHistoryChart history={history} /></div>
         </div>
+      </motion.section>
+
+      <motion.section className={styles.intelligenceSection} variants={reveal}>
+        <div className={styles.intelligenceHeading}>
+          <span className={styles.eyebrow}>AI COACHING LAYER</span>
+          <h2>Analysis with<br /><em>real session context.</em></h2>
+          <p>Feedback is generated by the configured ML service from the latest reconstructed movement. Nothing is synthesized in the browser.</p>
+        </div>
+        <article className={styles.intelligenceCard}>
+          <BrainCircuit size={18} />
+          <span>LIVE COACHING CUE</span>
+          <p>{feedbackMutation.data?.text ?? "Request a cue after the first synchronized 3D result arrives."}</p>
+          {feedbackMutation.error && <small>{feedbackMutation.error.message}</small>}
+          <button
+            type="button"
+            disabled={!latest || feedbackMutation.isPending}
+            onClick={() => feedbackMutation.mutate()}
+          >
+            <Sparkles size={14} /> {feedbackMutation.isPending ? "Analyzing" : "Generate cue"}
+          </button>
+        </article>
+        <article className={styles.intelligenceCard}>
+          <Activity size={18} />
+          <span>SESSION REPORT</span>
+          <p>{summaryMutation.data?.ai_summary ?? "Generate a persisted report from reps, angle range, duration, and form events."}</p>
+          {summaryMutation.error && <small>{summaryMutation.error.message}</small>}
+          <button
+            type="button"
+            disabled={!latest || summaryMutation.isPending}
+            onClick={() => summaryMutation.mutate()}
+          >
+            <Sparkles size={14} /> {summaryMutation.isPending ? "Compiling" : "Generate report"}
+          </button>
+        </article>
       </motion.section>
 
       <motion.footer className={styles.footer} variants={reveal}>

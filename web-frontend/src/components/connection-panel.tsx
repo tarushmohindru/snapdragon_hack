@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Cable, Eye, EyeOff, LoaderCircle, Unplug } from "lucide-react";
+import { Cable, LoaderCircle, Unplug } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -20,7 +20,6 @@ type Props = {
 };
 
 export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Props) {
-  const [showToken, setShowToken] = useState(false);
   const [expanded, setExpanded] = useState(config === null);
   const {
     register,
@@ -31,7 +30,6 @@ export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Prop
     defaultValues: {
       backendUrl: process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000",
       sessionId: "",
-      token: "",
     },
   });
 
@@ -83,25 +81,6 @@ export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Prop
                 <input {...register("sessionId")} placeholder="Paste session ID" />
                 {errors.sessionId && <em>{errors.sessionId.message}</em>}
               </label>
-              <label>
-                <span>Dashboard token</span>
-                <div className={styles.tokenField}>
-                  <input
-                    {...register("token")}
-                    type={showToken ? "text" : "password"}
-                    autoComplete="off"
-                    placeholder="Signed host token"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowToken((current) => !current)}
-                    aria-label={showToken ? "Hide token" : "Show token"}
-                  >
-                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                {errors.token && <em>{errors.token.message}</em>}
-              </label>
               <button type="submit" className={styles.primaryButton} disabled={connecting}>
                 {connecting ? <LoaderCircle className={styles.spin} size={17} /> : <Cable size={17} />}
                 Connect live session
@@ -113,4 +92,3 @@ export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Prop
     </section>
   );
 }
-

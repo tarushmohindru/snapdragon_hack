@@ -15,6 +15,10 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        val backendUrl = providers.gradleProperty("FORMFUSION_BACKEND_URL")
+            .orElse("http://10.0.2.2:8000")
+        buildConfigField("String", "BACKEND_URL", "\"${backendUrl.get()}\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -61,6 +65,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -91,8 +96,8 @@ dependencies {
     // QR CODE SCANNING (join — ML Kit's ready-made scanner UI, no custom camera screen)
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
-    // WEBSOCKET (server on host phone, client on follower phone)
-    implementation("org.java-websocket:Java-WebSocket:1.5.6")
+    // HTTP + resilient WebSocket transport to the FormFusion backend.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // COROUTINES (async WebSocket + shared state)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

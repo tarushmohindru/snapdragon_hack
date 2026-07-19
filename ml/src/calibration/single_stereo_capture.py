@@ -1,5 +1,6 @@
-import cv2
 import os
+
+import cv2
 
 CAMERA_SOURCE = 0
 
@@ -38,13 +39,13 @@ while True:
     if key == 27:
         break
 
-    elif key == ord('a') and waiting_for == "a":
+    elif key == ord("a") and waiting_for == "a":
         filename = os.path.join(SAVE_DIR_A, f"pair_{count:02d}.png")
         cv2.imwrite(filename, frame)
         print(f"Saved {filename} -- now move phone to Position B, press 'b'")
         waiting_for = "b"
 
-    elif key == ord('b') and waiting_for == "b":
+    elif key == ord("b") and waiting_for == "b":
         filename = os.path.join(SAVE_DIR_B, f"pair_{count:02d}.png")
         cv2.imwrite(filename, frame)
         print(f"Saved {filename} -- pair {count} complete. Move board, then press 'a'")

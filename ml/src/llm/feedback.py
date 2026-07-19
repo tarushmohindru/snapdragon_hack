@@ -1,65 +1,67 @@
-import requests
-from src import config
+import httpx
 
-def get_realtime_status(elbow_angle,rep_count,state):
+from src.contracts import RealtimeFeedbackRequest, SessionSummaryRequest
+from src.settings import Settings
 
-    config.require("GOOGLE_API_KEY",config.GOOGLE_API_KEY)
 
+class AiNotConfigured(RuntimeError):
+    pass
+
+
+def get_realtime_status(
+    request: RealtimeFeedbackRequest,
+    settings: Settings,
+) -> tuple[str, str, str]:
+    if not settings.google_api_key:
+        raise AiNotConfigured("Google AI coaching is not configured")
     prompt = (
-        f"You are a live fitness coach. Current data: "
-        f"elbow angle = {elbow_angle:.1f} degrees, rep count = {rep_count}, "
-        f"current phase = '{state}'. "
-        f"Give ONE short coaching cue (max 10 words), encouraging and specific. "
-        f"Do not repeat the raw numbers back, just give actionable feedback."
+        "You are a concise exercise coach. Give one actionable cue in no more than 10 words. "
+        f"Exercise: {request.exercise}. Angle: {request.primary_angle_degrees}. "
+        f"Reps: {request.rep_count}. Phase: {request.movement_state}. "
+        f"Current form assessment: {request.form_quality}. Language: {request.language}. "
+        "Do not repeat measurements and do not make medical claims."
     )
-
-    response = requests.post(
+    response = httpx.post(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        headers={
-            "Authorization": f"Bearer {config.GOOGLE_API_KEY}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {settings.google_api_key}"},
         json={
-            "model": config.GOOGLE_API_KEY,
+            "model": settings.google_model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 30,
-            "temperature": 0.7,
+            "max_tokens": 40,
+            "temperature": 0.4,
         },
-        timeout=5,
+        timeout=8,
     )
     response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+    text = response.json()["choices"][0]["message"]["content"].strip()
+    return text, "google", settings.google_model
 
-def get_session_summary(session_data, language ="English"):
 
-    config.require("SARVAM_API_KEY",config.SARVAM_API_KEY)
-
+def get_session_summary(
+    request: SessionSummaryRequest,
+    settings: Settings,
+) -> tuple[str, str, str]:
+    if not settings.sarvam_api_key:
+        raise AiNotConfigured("Sarvam session summaries are not configured")
     prompt = (
-        f"You are a fitness coach reviewing a completed workout set. "
-        f"Exercise: {session_data.get('exercise')}. "
-        f"Total reps: {session_data.get('total_reps')}. "
-        f"Elbow angle range: {session_data.get('avg_elbow_angle_range')}. "
-        f"Duration: {session_data.get('duration_seconds')} seconds. "
-        f"Form notes: {', '.join(session_data.get('form_notes', []))}. "
-        f"Write a short (3-4 sentence) summary of the set in {language}, "
-        f"including one specific tip for improvement. Be encouraging."
+        "You are reviewing a completed exercise session. Write a supportive 3-4 sentence "
+        "summary with one specific improvement tip and no medical claims. "
+        f"Exercise: {request.exercise}. Reps: {request.total_reps}. "
+        f"Duration: {request.duration_seconds} seconds. Angle range: "
+        f"{request.angle_min} to {request.angle_max}. Notes: {', '.join(request.form_notes)}. "
+        f"Language: {request.language}."
     )
-
-    response = requests.post(
+    response = httpx.post(
         "https://api.sarvam.ai/v1/chat/completions",
-        headers= {
-            "Authorization": f"Bearer {config.SARVAM_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json= {
-            "model": config.SARVAM_MODEL,
+        headers={"Authorization": f"Bearer {settings.sarvam_api_key}"},
+        json={
+            "model": settings.sarvam_model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 200,
-            "temperature": 0.5,
+            "max_tokens": 240,
+            "temperature": 0.45,
         },
-        timeout=15, 
+        timeout=20,
     )
-    if response.status_code != 200:
-        print("Google API error response:", response.text)
     response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+    text = response.json()["choices"][0]["message"]["content"].strip()
+    return text, "sarvam", settings.sarvam_model

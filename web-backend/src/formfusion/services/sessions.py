@@ -6,35 +6,43 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from formfusion.config import Settings
-from formfusion.contracts.common import ClientRole
 from formfusion.contracts.http import (
+    CloseSessionResponse,
     CreateSessionResponse,
     JoinSessionResponse,
     SessionStatusResponse,
+    SessionSummaryResponse,
 )
 from formfusion.domain.errors import InvalidJoinCode, SessionExpired, SessionFull
 from formfusion.domain.models import SessionRecord
-from formfusion.repositories.memory import MemorySessionRepository
-from formfusion.services.auth import TokenClaims, TokenService
+from formfusion.repositories.sqlite import SqliteRepository
 
 
 class SessionService:
-    def __init__(
-        self,
-        repository: MemorySessionRepository,
-        tokens: TokenService,
-        settings: Settings,
-    ) -> None:
-        self._repository = repository
-        self._tokens = tokens
+    def __init__(self, repository: SqliteRepository, settings: Settings) -> None:
+        self.repository = repository
         self._settings = settings
 
     def _digest_join_code(self, session_id: str, join_code: str) -> str:
         return hmac.new(
-            self._settings.jwt_secret.encode(),
+            self._settings.join_code_secret.encode(),
             f"{session_id}:{join_code}".encode(),
             hashlib.sha256,
         ).hexdigest()
+
+    @staticmethod
+    def _status(session: SessionRecord) -> SessionStatusResponse:
+        return SessionStatusResponse(
+            session_id=session.session_id,
+            exercise=session.exercise,
+            device_ids=sorted(session.devices),
+            calibrated=session.calibrated,
+            calibration_reprojection_error=session.calibration_reprojection_error,
+            latest_result_at=session.latest_result_at,
+            started_at=session.created_at,
+            ended_at=session.ended_at,
+            expires_at=session.expires_at,
+        )
 
     async def create(self, exercise: str) -> CreateSessionResponse:
         session_id = str(uuid.uuid4())
@@ -42,29 +50,33 @@ class SessionService:
         join_code = "".join(secrets.choice(alphabet) for _ in range(8))
         now = datetime.now(UTC)
         expires_at = now + timedelta(seconds=self._settings.session_ttl_seconds)
-        session = SessionRecord(
-            session_id=session_id,
-            join_code_digest=self._digest_join_code(session_id, join_code),
-            exercise=exercise,
-            created_at=now,
-            expires_at=expires_at,
+        await self.repository.create(
+            SessionRecord(
+                session_id=session_id,
+                join_code_digest=self._digest_join_code(session_id, join_code),
+                exercise=exercise,
+                created_at=now,
+                expires_at=expires_at,
+            )
         )
-        await self._repository.create(session)
         return CreateSessionResponse(
             session_id=session_id,
             join_code=join_code,
-            host_token=self._tokens.issue(session_id, ClientRole.HOST),
             expires_at=expires_at,
         )
 
-    async def get_record(self, session_id: str) -> SessionRecord:
-        session = await self._repository.get(session_id)
+    async def get_record(self, session_id: str, allow_closed: bool = True) -> SessionRecord:
+        session = await self.repository.get(session_id)
         if session.expired:
             raise SessionExpired(f"session {session_id} has expired")
+        if not allow_closed and session.ended_at is not None:
+            raise SessionExpired(f"session {session_id} is closed")
         return session
 
-    async def join(self, session_id: str, join_code: str, device_id: str) -> JoinSessionResponse:
-        session = await self.get_record(session_id)
+    async def join(
+        self, session_id: str, join_code: str, device_id: str, device_name: str
+    ) -> JoinSessionResponse:
+        session = await self.get_record(session_id, allow_closed=False)
         expected = self._digest_join_code(session_id, join_code.upper())
         if not secrets.compare_digest(expected, session.join_code_digest):
             raise InvalidJoinCode("join code is invalid")
@@ -73,49 +85,50 @@ class SessionService:
             and len(session.devices) >= self._settings.max_devices_per_session
         ):
             raise SessionFull("session has reached its device limit")
-        session.devices.add(device_id)
+        await self.repository.add_device(session_id, device_id, device_name)
         return JoinSessionResponse(
             session_id=session_id,
             device_id=device_id,
-            device_token=self._tokens.issue(session_id, ClientRole.DEVICE, device_id),
             expires_at=session.expires_at,
         )
 
     async def status(self, session_id: str) -> SessionStatusResponse:
+        return self._status(await self.get_record(session_id))
+
+    async def list(self, limit: int) -> list[SessionStatusResponse]:
+        return [
+            self._status(session)
+            for session in await self.repository.list_sessions(limit)
+        ]
+
+    async def close(self, session_id: str) -> CloseSessionResponse:
+        await self.get_record(session_id)
+        ended_at = datetime.now(UTC)
+        await self.repository.close(session_id, ended_at)
+        return CloseSessionResponse(session_id=session_id, ended_at=ended_at)
+
+    async def build_summary(self, session_id: str) -> SessionSummaryResponse:
         session = await self.get_record(session_id)
-        return SessionStatusResponse(
-            session_id=session.session_id,
+        results = await self.repository.results(session_id, 100_000)
+        angles = [
+            float(result["primary_angle_degrees"])
+            for result in results
+            if result.get("primary_angle_degrees") is not None
+        ]
+        total_reps = max((int(result.get("rep_count", 0)) for result in results), default=0)
+        end = session.ended_at or datetime.now(UTC)
+        saved = await self.repository.summary(session_id)
+        return SessionSummaryResponse(
+            session_id=session_id,
             exercise=session.exercise,
-            device_ids=sorted(session.devices),
-            calibrated=session.calibrated,
-            expires_at=session.expires_at,
+            duration_seconds=max(0, int((end - session.created_at).total_seconds())),
+            total_reps=total_reps,
+            angle_min=min(angles) if angles else None,
+            angle_max=max(angles) if angles else None,
+            ai_summary=str(saved["text"]) if saved and saved.get("text") else None,
+            started_at=session.created_at,
+            ended_at=session.ended_at,
         )
 
-    async def authorize_host(self, session_id: str, authorization: str | None) -> None:
-        if not authorization or not authorization.startswith("Bearer "):
-            from formfusion.domain.errors import Unauthorized
-
-            raise Unauthorized("missing bearer token")
-        claims = self._tokens.verify(authorization.removeprefix("Bearer ").strip())
-        if claims.session_id != session_id or claims.role is not ClientRole.HOST:
-            from formfusion.domain.errors import Unauthorized
-
-            raise Unauthorized("host token required")
-
-    async def authorize_client(
-        self,
-        session_id: str,
-        authorization: str | None,
-    ) -> TokenClaims:
-        from formfusion.domain.errors import Unauthorized
-
-        if not authorization or not authorization.startswith("Bearer "):
-            raise Unauthorized("missing bearer token")
-        claims = self._tokens.verify(authorization.removeprefix("Bearer ").strip())
-        if claims.session_id != session_id:
-            raise Unauthorized("token does not belong to this session")
-        await self.get_record(session_id)
-        return claims
-
     async def delete(self, session_id: str) -> None:
-        await self._repository.delete(session_id)
+        await self.repository.delete(session_id)

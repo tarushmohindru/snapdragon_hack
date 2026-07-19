@@ -1,90 +1,91 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
-import glob
-
-CHECKERBOARD = (9, 6)
-SQUARE_SIZE = 2.5   # use the SAME value you measured earlier
-
-DEVICE_A_ID = "deviceA"
-DEVICE_B_ID = "deviceB"
-
-PATH_A = f"stereo_images/{DEVICE_A_ID}/*.png"
-PATH_B = f"stereo_images/{DEVICE_B_ID}/*.png"
-
-# Load existing intrinsics (already calibrated)
-calib_A = np.load(f"calib_{DEVICE_A_ID}.npz")
-calib_B = np.load(f"calib_{DEVICE_B_ID}.npz")
-mtx1, dist1 = calib_A["camera_matrix"], calib_A["dist_coeffs"]
-mtx2, dist2 = calib_B["camera_matrix"], calib_B["dist_coeffs"]
-
-#object points
-objp = np.zeros((CHECKERBOARD[0]*CHECKERBOARD[1], 3), np.float32)
-objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
-objp *= SQUARE_SIZE
-
-objpoints = []
-imgpoints_A = []
-imgpoints_B = []
-
-images_A = sorted(glob.glob(PATH_A))
-images_B = sorted(glob.glob(PATH_B))
-
-if not images_A or not images_B:
-    raise SystemExit(f"No images found (A: {len(images_A)}, B: {len(images_B)}). "
-                      f"Check PATH_A/PATH_B and that capture_dual_stereo.py was run.")
- 
-if len(images_A) != len(images_B):
-    raise SystemExit(f"Mismatched pair counts: {len(images_A)} in A vs {len(images_B)} in B. "
-                      f"Every pair needs both an A and a B frame -- re-check the capture folders.")
-
-criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-img_shape = None
-
-for fA,fB in zip(images_A,images_B):
-
-    imgA = cv2.imread(fA)
-    imgB = cv2.imread(fB)
-
-    grayA = cv2.cvtColor(imgA, cv2.COLOR_BGR2GRAY)
-    grayB = cv2.cvtColor(imgB, cv2.COLOR_BGR2GRAY)
-    img_shape = grayA.shape[::-1]
-
-    retA, cornersA = cv2.findChessboardCorners(grayA, CHECKERBOARD, None)
-    retB, cornersB = cv2.findChessboardCorners(grayB, CHECKERBOARD, None)
 
 
-    if retA and retB:
-        cornersA = cv2.cornerSubPix(grayA, cornersA, (11, 11), (-1, -1), criteria)
-        cornersB = cv2.cornerSubPix(grayB, cornersB, (11, 11), (-1, -1), criteria)
+def stereo_calibrate(
+    paired_paths: list[tuple[Path, Path]],
+    intrinsics_a: dict[str, np.ndarray],
+    intrinsics_b: dict[str, np.ndarray],
+    checkerboard: tuple[int, int] = (9, 6),
+    square_size: float = 2.5,
+    minimum_pairs: int = 10,
+) -> dict[str, np.ndarray | float | int]:
+    """Calculate camera-B extrinsics relative to camera A from paired checkerboards."""
+    object_template = np.zeros((checkerboard[0] * checkerboard[1], 3), np.float32)
+    object_template[:, :2] = np.mgrid[0 : checkerboard[0], 0 : checkerboard[1]].T.reshape(-1, 2)
+    object_template *= square_size
+    object_points: list[np.ndarray] = []
+    image_points_a: list[np.ndarray] = []
+    image_points_b: list[np.ndarray] = []
+    image_size: tuple[int, int] | None = None
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-        objpoints.append(objp)
+    for path_a, path_b in paired_paths:
+        gray_a = cv2.imread(str(path_a), cv2.IMREAD_GRAYSCALE)
+        gray_b = cv2.imread(str(path_b), cv2.IMREAD_GRAYSCALE)
+        if gray_a is None or gray_b is None or gray_a.shape != gray_b.shape:
+            continue
+        current_size = (gray_a.shape[1], gray_a.shape[0])
+        if image_size is not None and current_size != image_size:
+            continue
+        found_a, corners_a = cv2.findChessboardCorners(gray_a, checkerboard)
+        found_b, corners_b = cv2.findChessboardCorners(gray_b, checkerboard)
+        if not found_a or not found_b:
+            continue
+        image_size = current_size
+        object_points.append(object_template.copy())
+        image_points_a.append(cv2.cornerSubPix(gray_a, corners_a, (11, 11), (-1, -1), criteria))
+        image_points_b.append(cv2.cornerSubPix(gray_b, corners_b, (11, 11), (-1, -1), criteria))
 
-        imgpoints_A.append(cornersA)
-        imgpoints_B.append(cornersB)
-    else:
-        print(f"Pair skipped (chessboard not found in one or both): {fA}, {fB}")
+    if image_size is None or len(object_points) < minimum_pairs:
+        raise ValueError(f"need {minimum_pairs} usable stereo pairs; found {len(object_points)}")
 
-print(f"\nUsing {len(objpoints)} valid pairs for stereo calibration")
+    error, camera_a, distortion_a, camera_b, distortion_b, rotation, translation, _, _ = (
+        cv2.stereoCalibrate(
+            object_points,
+            image_points_a,
+            image_points_b,
+            intrinsics_a["camera_matrix"],
+            intrinsics_a["dist_coeffs"],
+            intrinsics_b["camera_matrix"],
+            intrinsics_b["dist_coeffs"],
+            image_size,
+            criteria=criteria,
+            flags=cv2.CALIB_FIX_INTRINSIC,
+        )
+    )
+    return {
+        "camera_matrix_a": camera_a,
+        "distortion_a": distortion_a,
+        "camera_matrix_b": camera_b,
+        "distortion_b": distortion_b,
+        "rotation_a_to_b": rotation,
+        "translation_a_to_b": translation,
+        "reprojection_error": float(error),
+        "usable_pairs": len(object_points),
+    }
 
-flags = cv2.CALIB_FIX_INTRINSIC
 
-ret, mtx1, dist1, mtx2, dist2, R, T, E, F = cv2.stereoCalibrate(
-    objpoints, imgpoints_A, imgpoints_B,
-    mtx1, dist1, mtx2, dist2,
-    img_shape, criteria=criteria, flags=flags
-)
+def save_stereo(path: Path, result: dict[str, np.ndarray | float | int]) -> None:
+    np.savez(path, **result)
 
-print("\n=== STEREO CALIBRATION RESULTS ===")
-print(f"Device pair: {DEVICE_A_ID} -> {DEVICE_B_ID}")
-print(f"Stereo reprojection error: {ret:.4f}")
-print("\nRotation matrix (A -> B):\n", R)
-print("\nTranslation vector (A -> B), in same units as SQUARE_SIZE:\n", T)
 
-# Save for triangulation step
-out_name = f"stereo_calibration_{DEVICE_A_ID}_{DEVICE_B_ID}.npz"
-np.savez(out_name,
-         mtx1=mtx1, dist1=dist1,
-         mtx2=mtx2, dist2=dist2,
-         R=R, T=T)
- 
-print(f"\nSaved to {out_name}")
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Stereo-calibrate a FormFusion camera pair")
+    parser.add_argument("device_a_images", type=Path)
+    parser.add_argument("device_b_images", type=Path)
+    parser.add_argument("intrinsics_a", type=Path)
+    parser.add_argument("intrinsics_b", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    paths_a = {path.name: path for path in args.device_a_images.glob("*")}
+    paths_b = {path.name: path for path in args.device_b_images.glob("*")}
+    pairs = [(paths_a[name], paths_b[name]) for name in sorted(paths_a.keys() & paths_b.keys())]
+    with np.load(args.intrinsics_a) as calibration_a, np.load(args.intrinsics_b) as calibration_b:
+        result = stereo_calibrate(pairs, dict(calibration_a), dict(calibration_b))
+    save_stereo(args.output, result)
+    print(f"Saved stereo calibration to {args.output}")

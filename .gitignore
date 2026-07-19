@@ -1,5 +1,15 @@
 ml/export_assets
 ml/.venv
+web-backend/.venv
+.env
+**/.env
+**/.env.local
+**/.data/
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+web-frontend/.next/
+web-frontend/node_modules/
 *.iml
 .gradle
 /local.properties

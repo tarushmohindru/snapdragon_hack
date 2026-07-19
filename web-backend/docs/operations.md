@@ -1,40 +1,33 @@
-# Operations
+# Backend operations
 
-## Runtime topology
-
-Backend v1 intentionally runs as one application worker because frame queues, One-Euro filters,
-and rep counters are stateful per live session. Do not add multiple Uvicorn workers until Redis
-session ownership and session-affinity routing are implemented.
-
-Terminate TLS at the deployment platform or reverse proxy and forward WebSocket upgrades to the
-single backend worker.
+The backend keeps only ephemeral frame-pairing queues in memory. ML owns calibration,
+triangulation, filtering, biomechanics, reps, and LLM processing. SQLite owns durable sessions,
+devices, results, and summaries.
 
 ## Environment
 
 - `FORMFUSION_ENVIRONMENT`: `development`, `test`, or `production`.
-- `FORMFUSION_JWT_SECRET`: minimum 32 random characters in production.
 - `FORMFUSION_ALLOWED_ORIGINS`: JSON array of dashboard origins.
-- `FORMFUSION_SESSION_TTL_SECONDS`: session lifetime.
-- `FORMFUSION_FRAME_QUEUE_CAPACITY`: hard queue bound per device.
-- `FORMFUSION_FRAME_SYNC_TOLERANCE_MS`: maximum capture-time difference.
-- `FORMFUSION_MIN_KEYPOINT_CONFIDENCE`: minimum confidence on both phones.
+- `FORMFUSION_SESSION_TTL_SECONDS`: live session lifetime.
+- `FORMFUSION_FRAME_QUEUE_CAPACITY`: bounded frame queue per device.
+- `FORMFUSION_FRAME_SYNC_TOLERANCE_MS`: maximum camera timestamp difference.
+- `FORMFUSION_ML_SERVICE_URL`: internal ML base URL.
+- `FORMFUSION_ML_SERVICE_KEY`: backend-to-ML service key; 32+ characters in production.
+- `FORMFUSION_JOIN_CODE_SECRET`: HMAC key used to store join codes safely.
+- `FORMFUSION_DATABASE_PATH`: SQLite path on persistent storage.
 
-## Health and metrics
+## Health and scaling
 
-- `/health/live`: process is responding.
-- `/health/ready`: required services were initialized.
-- `/metrics`: Prometheus metrics for WebSockets, frames, pairing delta, drops, and processing time.
+- `/health/live` checks the backend process.
+- `/health/ready` also verifies ML readiness.
+- `/metrics` exposes WebSocket/frame/pairing/processing Prometheus metrics.
 
-Never log bearer/device tokens, join codes, raw calibration images, or complete pose payloads.
+Use one backend worker for local deployment. Multiple replicas require session affinity for
+in-memory pairing state, shared database storage, and a shared event broker for WebSocket/SSE
+fan-out. Terminate TLS at a reverse proxy and forward WebSocket upgrades.
 
-## Deployment checks
+Authentication is intentionally absent for now. Keep development deployments on a trusted LAN.
+Before public deployment, add user/device authentication, authorization, rate limits, HTTPS/WSS,
+restricted CORS, secret management, backups, and log/metric collection.
 
-1. Use a non-default secret and `FORMFUSION_ENVIRONMENT=production`.
-2. Restrict dashboard origins.
-3. Confirm the proxy supports WebSocket upgrades and has an idle timeout longer than the ping
-   interval used by clients.
-4. Keep one application worker.
-5. Load the correct projection matrices for the actual physical device pair.
-6. Confirm both devices use capture timestamps from the same clock domain or apply clock-offset
-   estimation before relying on a tight synchronization tolerance.
-
+Never log join codes, raw calibration images, LLM keys, or complete pose payloads.

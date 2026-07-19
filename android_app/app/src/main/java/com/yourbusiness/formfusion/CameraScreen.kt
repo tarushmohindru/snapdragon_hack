@@ -45,6 +45,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.yourbusiness.formfusion.camera.CameraPreview
 import com.yourbusiness.formfusion.camera.PoseOverlay
+import com.yourbusiness.formfusion.camera.WorldSkeletonOverlay
+import com.yourbusiness.formfusion.network.SessionManager
 import com.yourbusiness.formfusion.pose.PoseAnalyzer
 import com.yourbusiness.formfusion.ui.components.PrimaryButton
 import com.yourbusiness.formfusion.ui.components.SecondaryButton
@@ -182,6 +184,13 @@ fun CameraScreen(onBack: () -> Unit, onSessionEnded: (durationSeconds: Long) -> 
             mirrorHorizontally = isFrontCamera
         )
 
+        if (uiState.worldJoints.isNotEmpty()) {
+            WorldSkeletonOverlay(
+                joints = uiState.worldJoints,
+                modifier = Modifier.fillMaxSize().padding(top = 96.dp, bottom = 180.dp)
+            )
+        }
+
         // Translucent scrim behind the top status row so it stays legible over any
         // background, without ever fully blocking the camera feed underneath.
         Box(
@@ -205,8 +214,12 @@ fun CameraScreen(onBack: () -> Unit, onSessionEnded: (durationSeconds: Long) -> 
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     LiveStatusMetric(label = "Frames", value = uiState.frameCount.toString())
-                    LiveStatusMetric(label = "Persons", value = uiState.lastPersonCount.toString())
-                    LiveStatusMetric(label = "Keypoints", value = uiState.lastKeypointCount.toString())
+                    LiveStatusMetric(label = "Reps", value = uiState.repCount.toString())
+                    LiveStatusMetric(
+                        label = "Angle",
+                        value = uiState.primaryAngleDegrees?.let { "%.1f°".format(it) } ?: "—"
+                    )
+                    LiveStatusMetric(label = "Form", value = uiState.formQuality)
                 }
             }
 
@@ -236,7 +249,32 @@ fun CameraScreen(onBack: () -> Unit, onSessionEnded: (durationSeconds: Long) -> 
                 .padding(Spacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            uiState.aiFeedback?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = Spacing.md)
+                )
+            }
+            uiState.networkError?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = Spacing.sm)
+                )
+            }
             if (uiState.isSessionActive) {
+                if (SessionManager.sessionId.isNotBlank()) {
+                    SecondaryButton(
+                        text = "Ask AI Coach",
+                        onClick = viewModel::requestAiFeedback,
+                        enabled = uiState.primaryAngleDegrees != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                }
                 PrimaryButton(
                     text = "End Session",
                     onClick = { viewModel.endSession() },

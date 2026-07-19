@@ -12,9 +12,10 @@ async def liveness() -> dict[str, str]:
 
 @router.get("/health/ready")
 async def readiness(request: Request) -> dict[str, str]:
-    required = ("sessions", "tokens", "runtimes", "connections", "calibration")
+    required = ("sessions", "runtimes", "connections", "ml")
     ready = all(hasattr(request.app.state, name) for name in required)
-    return {"status": "ready" if ready else "not_ready"}
+    ml_ready = await request.app.state.ml.health() if ready else False
+    return {"status": "ready" if ready and ml_ready else "not_ready"}
 
 
 @router.get("/metrics", include_in_schema=False)

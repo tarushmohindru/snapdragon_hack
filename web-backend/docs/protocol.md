@@ -1,58 +1,38 @@
-# FormFusion Protocol v1
+# FormFusion protocol v1
 
 ## Session flow
 
-1. Host creates a session with `POST /api/v1/sessions`.
-2. The backend returns `session_id`, an eight-character `join_code`, and a signed host token.
-3. Each phone exchanges the join code and stable `device_id` at
-   `POST /api/v1/sessions/{session_id}/join`.
-4. Each phone opens `/api/v1/ws/sessions/{session_id}?token={device_token}` and sends
-   `device.hello` as its first message.
-5. Each phone uploads paired checkerboard images to
-   `POST /api/v1/sessions/{session_id}/calibration/images`; the host calls
-   `POST /api/v1/sessions/{session_id}/calibration/finalize`. For development, known 3x4
-   projection matrices can be supplied directly at
-   `PUT /api/v1/sessions/{session_id}/calibration/projections`.
-6. Phones send `pose.frame`; the backend pairs frames, processes the pair, and broadcasts
-   `pose.result` to all device/dashboard connections in the session.
+1. Create a session with `POST /api/v1/sessions`.
+2. Each phone joins with the returned `session_id` and `join_code`, plus its stable `device_id`.
+3. Both phones upload matching checkerboard capture IDs and the host finalizes calibration.
+4. Each phone opens `/api/v1/ws/sessions/{session_id}` and sends `device.hello` first.
+5. Phones send `pose.frame`; the backend pairs timestamps and forwards the observations to ML.
+6. ML returns the canonical result. The backend persists and broadcasts it unchanged.
 
-## Required Android keypoint mapping
+No bearer or WebSocket token is required in the current development configuration.
 
-RTMPose COCO-WholeBody IDs are preserved. The default exercise currently uses:
-
-| ID | Joint |
-|---:|---|
-| 5 | left shoulder |
-| 7 | left elbow |
-| 9 | left wrist |
-
-Send only the body/foot points needed by the active exercise. Do not send all face and hand
-points unless an exercise explicitly needs them.
-
-## WebSocket messages
-
-### Hello
+## Phone hello
 
 ```json
 {
   "schema_version": 1,
   "type": "device.hello",
   "session_id": "8e6f...",
-  "device_id": "phone-a",
+  "device_id": "android-a1b2c3",
   "role": "device"
 }
 ```
 
-Dashboard clients use a host token and set `role` to `dashboard` with `device_id: null`.
+A dashboard uses `"role": "dashboard"` and omits `device_id`.
 
-### Pose frame
+## Pose frame
 
 ```json
 {
   "schema_version": 1,
   "type": "pose.frame",
   "session_id": "8e6f...",
-  "device_id": "phone-a",
+  "device_id": "android-a1b2c3",
   "frame_id": 1042,
   "captured_at_ms": 1780000000123,
   "image": {
@@ -72,55 +52,47 @@ Dashboard clients use a host token and set `role` to `dashboard` with `device_id
 }
 ```
 
-Coordinates must be finite pixels in the upright analyzed bitmap coordinate system. Android
-must include the same width/height used when mapping model output back to the frame.
+Coordinates are finite pixels in the upright analyzed bitmap coordinate system. Preserve the
+RTMPose keypoint IDs and send the exact image dimensions used to map model output.
 
-### Result
+## Canonical result
 
 ```json
 {
   "schema_version": 1,
   "type": "pose.result",
   "session_id": "8e6f...",
-  "source_frame_ids": {"phone-a": 1042, "phone-b": 991},
   "captured_at_ms": 1780000000127,
-  "joints_3d": {"5": [0.1, 0.2, 2.4]},
-  "joint_angle_degrees": 143.2,
+  "joints_3d": {
+    "7": {"x": 0.2, "y": 0.8, "z": 2.4, "confidence": 0.94, "observations": 2}
+  },
+  "angles": [
+    {"name": "left_elbow", "degrees": 143.2, "joint_ids": [5, 7, 9]}
+  ],
+  "primary_angle_degrees": 143.2,
   "rep_count": 7,
-  "state": "down",
-  "pairing_delta_ms": 4,
-  "reprojection_error": 0.42
+  "movement_state": "extended",
+  "form_quality": "good",
+  "metadata": {
+    "coordinate_system": "camera_a_world_right_handed",
+    "units": "centimeters",
+    "calibration_id": "cal-123",
+    "reprojection_error": 0.42,
+    "source_frame_ids": {"android-a1b2c3": 1042, "android-d4e5f6": 991},
+    "source_timestamps_ms": {"android-a1b2c3": 1780000000123, "android-d4e5f6": 1780000000127},
+    "pairing_delta_ms": 4,
+    "processing_time_ms": 2.7
+  }
 }
 ```
 
-Clients must tolerate joints being absent when either camera confidence is below the configured
-threshold.
+Clients must tolerate absent joints when a landmark is missing or below the ML confidence limit.
 
-## Backpressure
+## Backpressure and errors
 
-- A session keeps a bounded queue per device.
-- The nearest timestamps are paired within the configured tolerance.
+- Android targets 10–15 frames per second and uses CameraX `KEEP_ONLY_LATEST`.
+- The backend keeps a bounded queue per device and pairs nearest timestamps within tolerance.
 - Duplicate, stale, and overflow frames are dropped rather than accumulating memory.
-- `frame.ack` reports whether the submitted frame was queued or immediately paired.
-- Android should initially send 10-15 pose frames per second and skip transmission when its own
-  send queue is occupied.
-
-## Error shape
-
-HTTP errors:
-
-```json
-{"error": {"code": "invalid_join_code", "message": "join code is invalid"}}
-```
-
-WebSocket errors:
-
-```json
-{
-  "schema_version": 1,
-  "type": "error",
-  "code": "calibration_required",
-  "message": "projection calibration has not been configured",
-  "request_id": null
-}
-```
+- `frame.ack` reports `queued`, `paired`, or `dropped`.
+- HTTP errors use `{"error":{"code":"...","message":"..."}}`.
+- WebSocket errors use the `error` message contract and close policy-invalid connections.

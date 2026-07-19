@@ -3,8 +3,10 @@ services:
     build: .
     environment:
       FORMFUSION_ENVIRONMENT: development
-      FORMFUSION_JWT_SECRET: local-development-secret-change-before-deploying
       FORMFUSION_ALLOWED_ORIGINS: '["http://localhost:3000"]'
+      FORMFUSION_ML_SERVICE_URL: http://ml:8100
+      FORMFUSION_ML_SERVICE_KEY: local-ml-service-key-change-before-production
+      FORMFUSION_JOIN_CODE_SECRET: local-join-code-secret-change-before-production
     ports:
       - "8000:8000"
     healthcheck:
@@ -12,4 +14,3 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-

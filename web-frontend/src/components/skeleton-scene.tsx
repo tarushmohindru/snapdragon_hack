@@ -12,6 +12,7 @@ import { Canvas } from "@react-three/fiber";
 import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import { useMemo } from "react";
 import type { Vector3Tuple } from "three";
+import type { Joint3D } from "@/lib/contracts";
 
 const EDGES = [
   [0, 1], [0, 2], [1, 3], [2, 4],
@@ -20,8 +21,11 @@ const EDGES = [
   [11, 13], [13, 15], [12, 14], [14, 16],
 ] as const;
 
-function normalizedJoints(joints: Record<string, [number, number, number]>) {
-  const entries = Object.entries(joints);
+function normalizedJoints(joints: Record<string, Joint3D>) {
+  const entries = Object.entries(joints).map(([id, point]) => [
+    id,
+    [point.x, point.y, point.z] satisfies Vector3Tuple,
+  ] as const);
   if (!entries.length) return {};
   const xs = entries.map(([, point]) => point[0]);
   const ys = entries.map(([, point]) => point[1]);
@@ -62,7 +66,7 @@ function MeasurementRig() {
   );
 }
 
-function Skeleton({ joints }: { joints: Record<string, [number, number, number]> }) {
+function Skeleton({ joints }: { joints: Record<string, Joint3D> }) {
   const points = useMemo(() => normalizedJoints(joints), [joints]);
   return (
     <group position={[0, -1.78, 0]}>
@@ -106,7 +110,7 @@ function Skeleton({ joints }: { joints: Record<string, [number, number, number]>
 export default function SkeletonScene({
   joints,
 }: {
-  joints: Record<string, [number, number, number]>;
+  joints: Record<string, Joint3D>;
 }) {
   return (
     <Canvas

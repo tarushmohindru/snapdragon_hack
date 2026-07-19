@@ -1,4 +1,5 @@
 import numpy as np
+
 from src.biomechanics.one_euro_filter import OneEuroFilter
 
 
@@ -14,7 +15,9 @@ def test_filter_reduces_noise_and_jitter():
     noisy_signal = true_signal + noise
 
     f = OneEuroFilter(freq=freq, min_cutoff=1.0, beta=0.1)
-    filtered_signal = np.array([f.filter(val, timestamp=ti) for val, ti in zip(noisy_signal, t)])
+    filtered_signal = np.array(
+        [f.filter(val, timestamp=ti) for val, ti in zip(noisy_signal, t, strict=True)]
+    )
 
     rms_noisy = np.sqrt(np.mean((noisy_signal - true_signal) ** 2))
     rms_filtered = np.sqrt(np.mean((filtered_signal - true_signal) ** 2))

@@ -8,6 +8,8 @@ import com.yourbusiness.formfusion.pose.PersonPose
 import com.yourbusiness.formfusion.pose.PoseEstimator
 import com.yourbusiness.formfusion.pose.RtmDetDetector
 import com.yourbusiness.formfusion.pose.RtmPoseOnnxEstimator
+import com.yourbusiness.formfusion.network.Role
+import com.yourbusiness.formfusion.network.SessionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class CameraUiState(
     val frameCount: Int = 0,
@@ -25,6 +29,15 @@ data class CameraUiState(
     val lastPersons: List<PersonPose> = emptyList(),
     val lastImageWidth: Int = 0,
     val lastImageHeight: Int = 0,
+    val primaryAngleDegrees: Float? = null,
+    val repCount: Int = 0,
+    val movementState: String = "waiting",
+    val formQuality: String = "unknown",
+    val reprojectionError: Float? = null,
+    val socketConnected: Boolean = false,
+    val aiFeedback: String? = null,
+    val networkError: String? = null,
+    val worldJoints: Map<Int, Triple<Float, Float, Float>> = emptyMap(),
     val isSessionActive: Boolean = true
 )
 
@@ -67,11 +80,47 @@ class CameraViewModel(
     // Session "start" is when this screen/ViewModel is created — there's no separate
     // Start button, the camera begins analyzing immediately on entering the screen.
     private val sessionStartTime = elapsedRealtime()
+    private var lastSentAtMs = 0L
+    private var frameId = 0
 
     init {
         viewModelScope.launch(Dispatchers.Default) {
             personDetector.initialize()
             poseEstimator.initialize()
+        }
+        if (SessionManager.sessionId.isNotBlank()) {
+            SessionManager.connectSocket(context.applicationContext)
+        }
+        viewModelScope.launch {
+            SessionManager.liveResult.collect { result ->
+                if (result != null) {
+                    _uiState.update {
+                        it.copy(
+                            primaryAngleDegrees = result.primaryAngleDegrees,
+                            repCount = result.repCount,
+                            movementState = result.movementState,
+                            formQuality = result.formQuality,
+                            reprojectionError = result.reprojectionError,
+                            worldJoints = result.joints
+                        )
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            SessionManager.socketConnected.collect { connected ->
+                _uiState.update { it.copy(socketConnected = connected) }
+            }
+        }
+        viewModelScope.launch {
+            SessionManager.connectionError.collect { error ->
+                _uiState.update { it.copy(networkError = error) }
+            }
+        }
+        viewModelScope.launch {
+            SessionManager.aiFeedback.collect { feedback ->
+                _uiState.update { it.copy(aiFeedback = feedback) }
+            }
         }
     }
 
@@ -88,6 +137,55 @@ class CameraViewModel(
                 lastImageHeight = imageHeight
             )
         }
+        sendFrameIfDue(persons, imageWidth, imageHeight)
+    }
+
+    private fun sendFrameIfDue(persons: List<PersonPose>, imageWidth: Int, imageHeight: Int) {
+        if (SessionManager.sessionId.isBlank()) return
+        val person = persons.firstOrNull { it.landmarks.isNotEmpty() } ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastSentAtMs < 80) return
+        lastSentAtMs = now
+        frameId += 1
+        val keypoints = JSONArray()
+        person.landmarks.forEach { point ->
+            keypoints.put(
+                JSONObject()
+                    .put("id", point.id)
+                    .put("x", point.x)
+                    .put("y", point.y)
+                    .put("confidence", point.visibility.coerceIn(0f, 1f))
+            )
+        }
+        val payload = JSONObject()
+            .put("schema_version", 1)
+            .put("type", "pose.frame")
+            .put("session_id", SessionManager.sessionId)
+            .put("device_id", SessionManager.deviceId)
+            .put("frame_id", frameId)
+            .put("captured_at_ms", now)
+            .put(
+                "image",
+                JSONObject()
+                    .put("width", imageWidth)
+                    .put("height", imageHeight)
+                    .put("rotation_degrees", 0)
+                    .put("mirrored", false)
+            )
+            .put(
+                "person",
+                JSONObject().put("track_id", 1).put("keypoints", keypoints)
+            )
+        SessionManager.sendPoseFrame(payload.toString())
+    }
+
+    fun requestAiFeedback() {
+        if (SessionManager.sessionId.isBlank()) return
+        viewModelScope.launch {
+            runCatching { SessionManager.api().requestFeedback(SessionManager.sessionId) }
+                .onSuccess { SessionManager.aiFeedback.value = it }
+                .onFailure { _uiState.update { state -> state.copy(networkError = it.message) } }
+        }
     }
 
     fun endSession() {
@@ -95,7 +193,15 @@ class CameraViewModel(
         _uiState.update { it.copy(isSessionActive = false) }
 
         val durationSeconds = (elapsedRealtime() - sessionStartTime) / 1000
-        viewModelScope.launch { _events.send(CameraEvent.SessionEnded(durationSeconds)) }
+        viewModelScope.launch {
+            if (SessionManager.sessionId.isNotBlank() && SessionManager.role == Role.HOST) {
+                runCatching { SessionManager.api().closeSession(SessionManager.sessionId) }
+                runCatching { SessionManager.api().generateSummary(SessionManager.sessionId) }
+                    .onSuccess { SessionManager.aiSummary.value = it }
+            }
+            SessionManager.disconnectSocket()
+            _events.send(CameraEvent.SessionEnded(durationSeconds))
+        }
 
         Log.i(TAG, "===== Session ended: ${sessionFrames.size} frames analyzed, duration=${durationSeconds}s =====")
         sessionFrames.forEachIndexed { frameIndex, persons ->

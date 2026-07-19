@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.yourbusiness.formfusion.ui.components.PrimaryButton
 import com.yourbusiness.formfusion.ui.components.SectionHeader
@@ -45,7 +46,8 @@ fun HostScreen(
     onSessionStarted: () -> Unit,
     onBack: () -> Unit
 ) {
-    val viewModel = remember { HostViewModel() }
+    val context = LocalContext.current
+    val viewModel = remember { HostViewModel(context.applicationContext) }
     val uiState by viewModel.uiState.collectAsState()
 
     DisposableEffect(viewModel) {
@@ -76,6 +78,15 @@ fun HostScreen(
 
         Spacer(modifier = Modifier.height(Spacing.xl))
 
+        uiState.error?.let {
+            StatusChip(text = it, tone = StatusTone.Error)
+            PrimaryButton(
+                text = "Retry backend",
+                onClick = viewModel::createSession,
+                modifier = Modifier.fillMaxWidth().padding(top = Spacing.md)
+            )
+        }
+
         SurfaceCard {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -95,6 +106,13 @@ fun HostScreen(
                     text = "${uiState.connectedCount} phone${if (uiState.connectedCount == 1) "" else "s"} connected",
                     tone = if (uiState.connectedCount > 0) StatusTone.Success else StatusTone.Neutral
                 )
+                if (uiState.joinCode.isNotBlank()) {
+                    Text(
+                        text = "Join code ${uiState.joinCode}",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = Spacing.md)
+                    )
+                }
             }
         }
 

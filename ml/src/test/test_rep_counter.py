@@ -1,4 +1,5 @@
 import numpy as np
+
 from src.biomechanics.rep_counting import RepCounter
 
 
@@ -15,7 +16,7 @@ def test_counts_correct_number_of_reps():
 
     counter = RepCounter(down_threshold=160, up_threshold=50, min_frames_per_state=3)
     for angle in noisy_angle_signal:
-        rep_count, state = counter.update(angle)
+        rep_count, _state = counter.update(angle)
 
     assert rep_count == n_reps, f"Expected {n_reps} reps, got {rep_count}"
 
@@ -25,7 +26,7 @@ def test_jitter_near_threshold_does_not_cause_false_reps():
     counter = RepCounter(down_threshold=160, up_threshold=50, min_frames_per_state=3)
     jittery_hold = 160 + np.random.normal(0, 5.0, 60)
     for angle in jittery_hold:
-        rep_count, state = counter.update(angle)
+        rep_count, _state = counter.update(angle)
 
     assert rep_count == 0, f"Expected 0 false reps from jitter, got {rep_count}"
 

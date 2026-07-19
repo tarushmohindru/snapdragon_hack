@@ -1,19 +1,28 @@
-from fastapi import APIRouter, Depends, File, Form, Header, Response, UploadFile, status
+import asyncio
+import json
+from collections.abc import AsyncIterator
 
-from formfusion.api.dependencies import calibration, runtimes, sessions
-from formfusion.contracts.common import ClientRole
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
+
+from formfusion.api.dependencies import connections, ml_client, runtimes, sessions
 from formfusion.contracts.http import (
-    CalibrationCaptureResponse,
+    AiResponse,
     CalibrationResponse,
+    CloseSessionResponse,
     CreateSessionRequest,
     CreateSessionResponse,
+    FeedbackRequest,
     FinalizeCalibrationRequest,
     JoinSessionRequest,
     JoinSessionResponse,
     ProjectionCalibrationRequest,
+    SessionResultsResponse,
     SessionStatusResponse,
+    SessionSummaryResponse,
 )
-from formfusion.services.calibration import CalibrationService
+from formfusion.services.connections import ConnectionManager
+from formfusion.services.ml_client import MlClient
 from formfusion.services.runtime import RuntimeRegistry
 from formfusion.services.sessions import SessionService
 
@@ -22,10 +31,17 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 @router.post("", response_model=CreateSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
-    payload: CreateSessionRequest,
-    service: SessionService = Depends(sessions),
+    payload: CreateSessionRequest, service: SessionService = Depends(sessions)
 ) -> CreateSessionResponse:
     return await service.create(payload.exercise)
+
+
+@router.get("", response_model=list[SessionStatusResponse])
+async def list_sessions(
+    limit: int = Query(default=100, ge=1, le=500),
+    service: SessionService = Depends(sessions),
+) -> list[SessionStatusResponse]:
+    return await service.list(limit)
 
 
 @router.post("/{session_id}/join", response_model=JoinSessionResponse)
@@ -34,49 +50,54 @@ async def join_session(
     payload: JoinSessionRequest,
     service: SessionService = Depends(sessions),
 ) -> JoinSessionResponse:
-    return await service.join(session_id, payload.join_code, payload.device_id)
+    return await service.join(
+        session_id, payload.join_code, payload.device_id, payload.device_name
+    )
 
 
 @router.get("/{session_id}", response_model=SessionStatusResponse)
 async def session_status(
-    session_id: str,
-    service: SessionService = Depends(sessions),
+    session_id: str, service: SessionService = Depends(sessions)
 ) -> SessionStatusResponse:
     return await service.status(session_id)
 
 
-@router.put("/{session_id}/calibration/projections", response_model=CalibrationResponse)
-async def configure_projection_calibration(
+@router.get("/{session_id}/results", response_model=SessionResultsResponse)
+async def session_results(
     session_id: str,
-    payload: ProjectionCalibrationRequest,
-    authorization: str | None = Header(default=None),
+    limit: int = Query(default=1000, ge=1, le=100_000),
     service: SessionService = Depends(sessions),
-    registry: RuntimeRegistry = Depends(runtimes),
-) -> CalibrationResponse:
-    await service.authorize_host(session_id, authorization)
-    session = await service.get_record(session_id)
-    if not {payload.device_a, payload.device_b}.issubset(session.devices):
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=409, detail="calibration devices must first join the session"
-        )
-    await registry.configure_calibration(session_id, payload)
-    session.calibrated = True
-    quality = "unknown"
-    if payload.reprojection_error is not None:
-        quality = "good" if payload.reprojection_error <= 1.0 else "poor"
-    return CalibrationResponse(
+) -> SessionResultsResponse:
+    await service.get_record(session_id)
+    return SessionResultsResponse(
         session_id=session_id,
-        calibrated=True,
-        quality=quality,
-        reprojection_error=payload.reprojection_error,
+        results=await service.repository.results(session_id, limit),
     )
+
+
+@router.get("/{session_id}/events")
+async def session_events(
+    session_id: str,
+    service: SessionService = Depends(sessions),
+    manager: ConnectionManager = Depends(connections),
+) -> StreamingResponse:
+    await service.get_record(session_id)
+
+    async def events() -> AsyncIterator[str]:
+        async with manager.subscribe(session_id) as queue:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: pose.result\ndata: {json.dumps(payload)}\n\n"
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post(
     "/{session_id}/calibration/images",
-    response_model=CalibrationCaptureResponse,
+    response_model=CalibrationResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_calibration_capture(
@@ -84,78 +105,148 @@ async def upload_calibration_capture(
     device_id: str = Form(),
     pair_id: str = Form(),
     image: UploadFile = File(),
-    authorization: str | None = Header(default=None),
     service: SessionService = Depends(sessions),
-    calibration_service: CalibrationService = Depends(calibration),
-) -> CalibrationCaptureResponse:
-    claims = await service.authorize_client(session_id, authorization)
-    session = await service.get_record(session_id)
-    if device_id not in session.devices:
+    ml: MlClient = Depends(ml_client),
+) -> CalibrationResponse:
+    record = await service.get_record(session_id, allow_closed=False)
+    if device_id not in record.devices:
         from fastapi import HTTPException
 
         raise HTTPException(status_code=409, detail="device must first join the session")
-    if claims.role is ClientRole.DEVICE and claims.device_id != device_id:
-        from formfusion.domain.errors import Unauthorized
+    result = await ml.upload_capture(session_id, device_id, pair_id, image)
+    await service.repository.set_calibration(
+        session_id, result.calibrated, result.reprojection_error
+    )
+    return result
 
-        raise Unauthorized("device token cannot upload another device's capture")
-    captures, complete_pairs = await calibration_service.save_capture(
-        session_id,
-        device_id,
-        pair_id,
-        image,
+
+@router.get("/{session_id}/calibration", response_model=CalibrationResponse)
+async def calibration_status(
+    session_id: str,
+    service: SessionService = Depends(sessions),
+    ml: MlClient = Depends(ml_client),
+) -> CalibrationResponse:
+    await service.get_record(session_id)
+    result = await ml.calibration_status(session_id)
+    await service.repository.set_calibration(
+        session_id, result.calibrated, result.reprojection_error
     )
-    return CalibrationCaptureResponse(
-        session_id=session_id,
-        device_id=device_id,
-        pair_id=pair_id,
-        captures_for_device=captures,
-        complete_pairs=complete_pairs,
-    )
+    return result
+
+
+@router.put("/{session_id}/calibration", response_model=CalibrationResponse)
+async def import_calibration(
+    session_id: str,
+    payload: ProjectionCalibrationRequest,
+    service: SessionService = Depends(sessions),
+    ml: MlClient = Depends(ml_client),
+) -> CalibrationResponse:
+    await service.get_record(session_id, allow_closed=False)
+    result = await ml.import_calibration(session_id, payload)
+    await service.repository.set_calibration(session_id, True, result.reprojection_error)
+    return result
 
 
 @router.post("/{session_id}/calibration/finalize", response_model=CalibrationResponse)
 async def finalize_calibration(
     session_id: str,
     payload: FinalizeCalibrationRequest,
-    authorization: str | None = Header(default=None),
     service: SessionService = Depends(sessions),
-    registry: RuntimeRegistry = Depends(runtimes),
-    calibration_service: CalibrationService = Depends(calibration),
+    ml: MlClient = Depends(ml_client),
 ) -> CalibrationResponse:
-    await service.authorize_host(session_id, authorization)
-    session = await service.get_record(session_id)
-    if not {payload.device_a, payload.device_b}.issubset(session.devices):
+    record = await service.get_record(session_id, allow_closed=False)
+    if not {payload.device_a, payload.device_b}.issubset(record.devices):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=409, detail="calibration devices must first join")
-    result = await calibration_service.finalize(session_id, payload)
-    projection_request = ProjectionCalibrationRequest(
-        device_a=payload.device_a,
-        device_b=payload.device_b,
-        projection_a=result.projection_a,
-        projection_b=result.projection_b,
-        reprojection_error=result.reprojection_error,
+    result = await ml.finalize_calibration(session_id, payload)
+    await service.repository.set_calibration(session_id, True, result.reprojection_error)
+    return result
+
+
+@router.post("/{session_id}/feedback", response_model=AiResponse)
+async def realtime_feedback(
+    session_id: str,
+    payload: FeedbackRequest,
+    service: SessionService = Depends(sessions),
+    ml: MlClient = Depends(ml_client),
+) -> AiResponse:
+    record = await service.get_record(session_id)
+    results = await service.repository.results(session_id, 1)
+    if not results:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail="a pose result is required before feedback")
+    latest = results[-1]
+    return await ml.realtime_feedback(
+        {
+            "exercise": record.exercise,
+            "primary_angle_degrees": latest.get("primary_angle_degrees"),
+            "rep_count": latest.get("rep_count", 0),
+            "movement_state": latest.get("movement_state", "unknown"),
+            "form_quality": latest.get("form_quality", "unknown"),
+            "language": payload.language,
+        }
     )
-    await registry.configure_calibration(session_id, projection_request)
-    session.calibrated = True
-    return CalibrationResponse(
-        session_id=session_id,
-        calibrated=True,
-        quality="good" if result.reprojection_error <= 1.0 else "poor",
-        reprojection_error=result.reprojection_error,
+
+
+@router.get("/{session_id}/summary", response_model=SessionSummaryResponse)
+async def get_summary(
+    session_id: str, service: SessionService = Depends(sessions)
+) -> SessionSummaryResponse:
+    return await service.build_summary(session_id)
+
+
+@router.post("/{session_id}/summary", response_model=SessionSummaryResponse)
+async def generate_summary(
+    session_id: str,
+    payload: FeedbackRequest,
+    service: SessionService = Depends(sessions),
+    ml: MlClient = Depends(ml_client),
+) -> SessionSummaryResponse:
+    summary = await service.build_summary(session_id)
+    results = await service.repository.results(session_id, 100_000)
+    notes = sorted(
+        {
+            str(result.get("form_quality"))
+            for result in results
+            if result.get("form_quality") not in {None, "good", "unknown"}
+        }
     )
+    ai = await ml.summary(
+        {
+            "exercise": summary.exercise,
+            "total_reps": summary.total_reps,
+            "duration_seconds": summary.duration_seconds,
+            "angle_min": summary.angle_min,
+            "angle_max": summary.angle_max,
+            "form_notes": notes,
+            "language": payload.language,
+        }
+    )
+    await service.repository.save_summary(session_id, ai.model_dump(mode="json"))
+    return summary.model_copy(update={"ai_summary": ai.text})
+
+
+@router.post("/{session_id}/close", response_model=CloseSessionResponse)
+async def close_session(
+    session_id: str,
+    service: SessionService = Depends(sessions),
+    registry: RuntimeRegistry = Depends(runtimes),
+) -> CloseSessionResponse:
+    result = await service.close(session_id)
+    await registry.delete(session_id)
+    return result
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: str,
-    authorization: str | None = Header(default=None),
     service: SessionService = Depends(sessions),
     registry: RuntimeRegistry = Depends(runtimes),
-    calibration_service: CalibrationService = Depends(calibration),
+    ml: MlClient = Depends(ml_client),
 ) -> Response:
-    await service.authorize_host(session_id, authorization)
     await service.delete(session_id)
     await registry.delete(session_id)
-    await calibration_service.delete_session(session_id)
+    await ml.delete_session(session_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

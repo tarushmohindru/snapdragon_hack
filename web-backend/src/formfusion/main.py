@@ -12,10 +12,9 @@ from formfusion.api.websocket import router as websocket_router
 from formfusion.config import Settings, get_settings
 from formfusion.domain.errors import DomainError
 from formfusion.logging import configure_logging
-from formfusion.repositories.memory import MemorySessionRepository
-from formfusion.services.auth import TokenService
-from formfusion.services.calibration import CalibrationService
+from formfusion.repositories.sqlite import SqliteRepository
 from formfusion.services.connections import ConnectionManager
+from formfusion.services.ml_client import MlClient
 from formfusion.services.runtime import RuntimeRegistry
 from formfusion.services.sessions import SessionService
 
@@ -27,28 +26,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        repository = MemorySessionRepository()
+        repository = SqliteRepository(resolved.database_path)
+        await repository.initialize()
         app.state.settings = resolved
-        app.state.tokens = TokenService(resolved)
-        app.state.sessions = SessionService(repository, app.state.tokens, resolved)
+        app.state.sessions = SessionService(repository, resolved)
         app.state.runtimes = RuntimeRegistry(resolved)
         app.state.connections = ConnectionManager()
-        app.state.calibration = CalibrationService(resolved)
+        app.state.ml = MlClient(resolved)
         log.info("application_started", environment=resolved.environment)
         yield
+        await app.state.ml.close()
         log.info("application_stopped")
 
-    application = FastAPI(
-        title=resolved.app_name,
-        version="0.1.0",
-        lifespan=lifespan,
-    )
+    application = FastAPI(title=resolved.app_name, version="1.0.0", lifespan=lifespan)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=resolved.allowed_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Content-Type"],
     )
 
     @application.exception_handler(DomainError)
