@@ -194,4 +194,4 @@ set `JAVA_HOME` before treating Android verification as complete.
 - **Calibration fails:** capture the entire checkerboard sharply in both cameras, vary distance
   and tilt, and avoid reusing an unchanged board pose.
 - **AI returns 503:** configure one supported LLM API key in the ML service. Core pose processing
-  remains available.
+  remains available
