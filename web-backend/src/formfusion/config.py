@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     frame_queue_capacity: int = Field(default=12, ge=2, le=128)
     frame_sync_tolerance_ms: int = Field(default=60, ge=1, le=1_000)
     min_keypoint_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    max_calibration_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    calibration_root: Path = Path(".data/calibration")
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

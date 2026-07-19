@@ -14,6 +14,7 @@ from formfusion.domain.errors import DomainError
 from formfusion.logging import configure_logging
 from formfusion.repositories.memory import MemorySessionRepository
 from formfusion.services.auth import TokenService
+from formfusion.services.calibration import CalibrationService
 from formfusion.services.connections import ConnectionManager
 from formfusion.services.runtime import RuntimeRegistry
 from formfusion.services.sessions import SessionService
@@ -32,6 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessions = SessionService(repository, app.state.tokens, resolved)
         app.state.runtimes = RuntimeRegistry(resolved)
         app.state.connections = ConnectionManager()
+        app.state.calibration = CalibrationService(resolved)
         log.info("application_started", environment=resolved.environment)
         yield
         log.info("application_stopped")

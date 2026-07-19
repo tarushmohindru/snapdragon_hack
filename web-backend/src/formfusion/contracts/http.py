@@ -61,3 +61,20 @@ class CalibrationResponse(StrictModel):
     calibrated: bool
     quality: str
     reprojection_error: float | None
+
+
+class CalibrationCaptureResponse(StrictModel):
+    session_id: str
+    device_id: str
+    pair_id: str
+    captures_for_device: int
+    complete_pairs: int
+
+
+class FinalizeCalibrationRequest(StrictModel):
+    device_a: str = Field(min_length=3, max_length=128)
+    device_b: str = Field(min_length=3, max_length=128)
+    checkerboard_columns: int = Field(default=9, ge=3, le=30)
+    checkerboard_rows: int = Field(default=6, ge=3, le=30)
+    square_size: float = Field(default=1.0, gt=0.0, le=1_000.0)
+    minimum_pairs: int = Field(default=10, ge=3, le=100)

@@ -8,8 +8,11 @@
    `POST /api/v1/sessions/{session_id}/join`.
 4. Each phone opens `/api/v1/ws/sessions/{session_id}?token={device_token}` and sends
    `device.hello` as its first message.
-5. The host uploads the two 3x4 projection matrices to
-   `PUT /api/v1/sessions/{session_id}/calibration/projections` using the host bearer token.
+5. Each phone uploads paired checkerboard images to
+   `POST /api/v1/sessions/{session_id}/calibration/images`; the host calls
+   `POST /api/v1/sessions/{session_id}/calibration/finalize`. For development, known 3x4
+   projection matrices can be supplied directly at
+   `PUT /api/v1/sessions/{session_id}/calibration/projections`.
 6. Phones send `pose.frame`; the backend pairs frames, processes the pair, and broadcasts
    `pose.result` to all device/dashboard connections in the session.
 
@@ -121,4 +124,3 @@ WebSocket errors:
   "request_id": null
 }
 ```
-

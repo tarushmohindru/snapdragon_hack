@@ -15,7 +15,7 @@ from formfusion.contracts.http import (
 from formfusion.domain.errors import InvalidJoinCode, SessionExpired, SessionFull
 from formfusion.domain.models import SessionRecord
 from formfusion.repositories.memory import MemorySessionRepository
-from formfusion.services.auth import TokenService
+from formfusion.services.auth import TokenClaims, TokenService
 
 
 class SessionService:
@@ -101,6 +101,21 @@ class SessionService:
             from formfusion.domain.errors import Unauthorized
 
             raise Unauthorized("host token required")
+
+    async def authorize_client(
+        self,
+        session_id: str,
+        authorization: str | None,
+    ) -> TokenClaims:
+        from formfusion.domain.errors import Unauthorized
+
+        if not authorization or not authorization.startswith("Bearer "):
+            raise Unauthorized("missing bearer token")
+        claims = self._tokens.verify(authorization.removeprefix("Bearer ").strip())
+        if claims.session_id != session_id:
+            raise Unauthorized("token does not belong to this session")
+        await self.get_record(session_id)
+        return claims
 
     async def delete(self, session_id: str) -> None:
         await self._repository.delete(session_id)

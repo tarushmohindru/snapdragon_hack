@@ -1,15 +1,19 @@
-from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi import APIRouter, Depends, File, Form, Header, Response, UploadFile, status
 
-from formfusion.api.dependencies import runtimes, sessions
+from formfusion.api.dependencies import calibration, runtimes, sessions
+from formfusion.contracts.common import ClientRole
 from formfusion.contracts.http import (
+    CalibrationCaptureResponse,
     CalibrationResponse,
     CreateSessionRequest,
     CreateSessionResponse,
+    FinalizeCalibrationRequest,
     JoinSessionRequest,
     JoinSessionResponse,
     ProjectionCalibrationRequest,
     SessionStatusResponse,
 )
+from formfusion.services.calibration import CalibrationService
 from formfusion.services.runtime import RuntimeRegistry
 from formfusion.services.sessions import SessionService
 
@@ -70,14 +74,88 @@ async def configure_projection_calibration(
     )
 
 
+@router.post(
+    "/{session_id}/calibration/images",
+    response_model=CalibrationCaptureResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_calibration_capture(
+    session_id: str,
+    device_id: str = Form(),
+    pair_id: str = Form(),
+    image: UploadFile = File(),
+    authorization: str | None = Header(default=None),
+    service: SessionService = Depends(sessions),
+    calibration_service: CalibrationService = Depends(calibration),
+) -> CalibrationCaptureResponse:
+    claims = await service.authorize_client(session_id, authorization)
+    session = await service.get_record(session_id)
+    if device_id not in session.devices:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail="device must first join the session")
+    if claims.role is ClientRole.DEVICE and claims.device_id != device_id:
+        from formfusion.domain.errors import Unauthorized
+
+        raise Unauthorized("device token cannot upload another device's capture")
+    captures, complete_pairs = await calibration_service.save_capture(
+        session_id,
+        device_id,
+        pair_id,
+        image,
+    )
+    return CalibrationCaptureResponse(
+        session_id=session_id,
+        device_id=device_id,
+        pair_id=pair_id,
+        captures_for_device=captures,
+        complete_pairs=complete_pairs,
+    )
+
+
+@router.post("/{session_id}/calibration/finalize", response_model=CalibrationResponse)
+async def finalize_calibration(
+    session_id: str,
+    payload: FinalizeCalibrationRequest,
+    authorization: str | None = Header(default=None),
+    service: SessionService = Depends(sessions),
+    registry: RuntimeRegistry = Depends(runtimes),
+    calibration_service: CalibrationService = Depends(calibration),
+) -> CalibrationResponse:
+    await service.authorize_host(session_id, authorization)
+    session = await service.get_record(session_id)
+    if not {payload.device_a, payload.device_b}.issubset(session.devices):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=409, detail="calibration devices must first join")
+    result = await calibration_service.finalize(session_id, payload)
+    projection_request = ProjectionCalibrationRequest(
+        device_a=payload.device_a,
+        device_b=payload.device_b,
+        projection_a=result.projection_a,
+        projection_b=result.projection_b,
+        reprojection_error=result.reprojection_error,
+    )
+    await registry.configure_calibration(session_id, projection_request)
+    session.calibrated = True
+    return CalibrationResponse(
+        session_id=session_id,
+        calibrated=True,
+        quality="good" if result.reprojection_error <= 1.0 else "poor",
+        reprojection_error=result.reprojection_error,
+    )
+
+
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
     session_id: str,
     authorization: str | None = Header(default=None),
     service: SessionService = Depends(sessions),
     registry: RuntimeRegistry = Depends(runtimes),
+    calibration_service: CalibrationService = Depends(calibration),
 ) -> Response:
     await service.authorize_host(session_id, authorization)
     await service.delete(session_id)
     await registry.delete(session_id)
+    await calibration_service.delete_session(session_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

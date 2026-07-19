@@ -31,3 +31,13 @@ class Unauthorized(DomainError):
 class CalibrationRequired(DomainError):
     code = "calibration_required"
     status_code = 409
+
+
+class CalibrationFailed(DomainError):
+    code = "calibration_failed"
+    status_code = 422
+
+
+class PayloadTooLarge(DomainError):
+    code = "payload_too_large"
+    status_code = 413
