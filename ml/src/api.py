@@ -117,6 +117,8 @@ async def finalize_calibration(
             (request.checkerboard_columns, request.checkerboard_rows),
             request.square_size,
             request.minimum_pairs,
+            app.state.settings.allow_approximate_calibration,
+            app.state.settings.approximate_camera_baseline_cm,
         )
     except (ValueError, cv2.error) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

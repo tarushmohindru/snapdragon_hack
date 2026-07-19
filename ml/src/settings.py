@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     data_root: Path = Path(".data")
     min_keypoint_confidence: float = Field(default=0.001, ge=0.0, le=1.0)
     max_capture_bytes: int = Field(default=12 * 1024 * 1024, ge=1024)
+    allow_approximate_calibration: bool = False
+    approximate_camera_baseline_cm: float = Field(default=30.0, gt=1.0, le=500.0)
     google_api_key: str | None = None
     google_model: str = "gemma-3-27b-it"
     sarvam_api_key: str | None = None

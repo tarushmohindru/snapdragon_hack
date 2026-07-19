@@ -4,6 +4,7 @@ import shutil
 import uuid
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from src.calibration.calibrate import calibrate_camera
@@ -69,6 +70,8 @@ class CalibrationStore:
         checkerboard: tuple[int, int],
         square_size: float,
         minimum_pairs: int,
+        allow_approximate: bool = False,
+        approximate_baseline_cm: float = 30.0,
     ) -> ProjectionCalibration:
         index_path = self._session_dir(session_id) / "capture-index.json"
         if not index_path.exists():
@@ -79,8 +82,43 @@ class CalibrationStore:
             raise ValueError(f"need {minimum_pairs} paired captures; found {len(common)}")
         paths_a = [Path(index[device_a][pair_id]) for pair_id in common]
         paths_b = [Path(index[device_b][pair_id]) for pair_id in common]
-        intrinsics_a = calibrate_camera(paths_a, checkerboard, square_size, minimum_pairs)
-        intrinsics_b = calibrate_camera(paths_b, checkerboard, square_size, minimum_pairs)
+        try:
+            intrinsics_a = calibrate_camera(paths_a, checkerboard, square_size, minimum_pairs)
+            intrinsics_b = calibrate_camera(paths_b, checkerboard, square_size, minimum_pairs)
+        except ValueError as calibration_error:
+            if not allow_approximate:
+                raise
+            image_a = cv2.imread(str(paths_a[0]))
+            image_b = cv2.imread(str(paths_b[0]))
+            if image_a is None or image_b is None:
+                raise ValueError(
+                    "approximate calibration could not read capture images"
+                ) from calibration_error
+
+            def camera_matrix(image: np.ndarray) -> list[list[float]]:
+                height, width = image.shape[:2]
+                focal = float(max(width, height))
+                return [
+                    [focal, 0.0, width / 2.0],
+                    [0.0, focal, height / 2.0],
+                    [0.0, 0.0, 1.0],
+                ]
+
+            calibration = ProjectionCalibration(
+                calibration_id=f"approximate-{uuid.uuid4()}",
+                device_a=device_a,
+                device_b=device_b,
+                camera_matrix_a=camera_matrix(image_a),
+                distortion_a=[0.0, 0.0, 0.0, 0.0, 0.0],
+                camera_matrix_b=camera_matrix(image_b),
+                distortion_b=[0.0, 0.0, 0.0, 0.0, 0.0],
+                rotation_a_to_b=np.eye(3).tolist(),
+                translation_a_to_b=[approximate_baseline_cm, 0.0, 0.0],
+                units="centimeters",
+                reprojection_error=None,
+            )
+            self.save(session_id, calibration)
+            return calibration
         stereo = stereo_calibrate(
             list(zip(paths_a, paths_b, strict=True)),
             {
