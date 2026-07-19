@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FormFusion — Hackathon Checklist</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --border:#272b35;
+    --text:#e8e9ed; --muted:#8b8f9a;
+    --must:#e5484d; --nice:#f5a623; --future:#5a8dee;
+    --done:#2ecc71;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg); color:var(--text); padding:24px 16px 60px;
+  }
+  .wrap{max-width:720px; margin:0 auto;}
+  h1{font-size:22px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .progress-bar{
+    height:8px; background:var(--card); border-radius:6px; overflow:hidden;
+    margin-bottom:6px; border:1px solid var(--border);
+  }
+  .progress-fill{height:100%; background:var(--done); width:0%; transition:width .3s ease;}
+  .progress-label{font-size:12px; color:var(--muted); margin-bottom:24px;}
+  .section{margin-bottom:22px;}
+  .section-head{
+    display:flex; align-items:center; gap:8px; margin-bottom:8px;
+  }
+  .tag{
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.04em; padding:2px 8px; border-radius:20px;
+  }
+  .tag-must{background:rgba(229,72,77,.15); color:var(--must); border:1px solid rgba(229,72,77,.4);}
+  .tag-nice{background:rgba(245,166,35,.15); color:var(--nice); border:1px solid rgba(245,166,35,.4);}
+  .tag-future{background:rgba(90,141,238,.15); color:var(--future); border:1px solid rgba(90,141,238,.4);}
+  .section-title{font-size:14px; font-weight:600;}
+  .section-note{font-size:12px; color:var(--muted); margin:2px 0 10px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:10px;
+    overflow:hidden;
+  }
+  .item{
+    display:flex; align-items:flex-start; gap:10px; padding:11px 14px;
+    border-bottom:1px solid var(--border); cursor:pointer; user-select:none;
+  }
+  .item:last-child{border-bottom:none;}
+  .item:hover{background:#1c2029;}
+  .check{
+    width:18px; height:18px; border-radius:5px; border:2px solid var(--muted);
+    flex-shrink:0; margin-top:1px; display:flex; align-items:center; justify-content:center;
+    font-size:12px; color:transparent; transition:all .15s ease;
+  }
+  .item.done .check{background:var(--done); border-color:var(--done); color:#0f1115;}
+  .item.done .item-text{color:var(--muted); text-decoration:line-through;}
+  .item-text{font-size:14px; line-height:1.4;}
+  .item-sub{font-size:12px; color:var(--muted); margin-top:2px;}
+  .reset-btn{
+    margin-top:28px; background:none; border:1px solid var(--border); color:var(--muted);
+    font-size:12px; padding:8px 14px; border-radius:8px; cursor:pointer;
+  }
+  .reset-btn:hover{border-color:var(--must); color:var(--must);}
+  .loading{color:var(--muted); font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FormFusion — Build Checklist</h1>
+  <div class="sub">Snapdragon Multiverse Hackathon · Noida · Jul 18–19</div>
+
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="progress-label" id="progressLabel">Loading…</div>
+
+  <div id="sections" class="loading">Loading checklist…</div>
+
+  <button class="reset-btn" id="resetBtn">Reset all progress</button>
+</div>
+
+<script>
+const DATA = [
+  {
+    key: "must",
+    tag: "tag-must",
+    tagLabel: "Must Build",
+    title: "Core pipeline — demo doesn't exist without these",
+    note: "Do these first, in order. Nothing else matters until this chain works end to end.",
+    items: [
+      ["must-1", "One-Euro filter on triangulated 3D keypoints", "Quick win, unblocks everything after it"],
+      ["must-2", "Joint angle computation (vector/dot-product)", "Needs the exercise decision locked first"],
+      ["must-3", "Rep counting state machine", "Depends on which exercise you're demoing"],
+      ["must-4", "FormFusionPipeline.process_frame() integration class finalized", "Wire filter + angles + rep count into the draft class"],
+      ["must-5", "API contract formalized (2D keypoint JSON schema)", "4 teammates are blocked on this — do it early"],
+      ["must-6", "Full chain tested with real MediaPipe output", "Not synthetic points — real noisy pose data"],
+      ["must-7", "Real two-device calibration test (15-20 pairs)", "The moment 2 phones are physically available"],
+      ["must-8", "Calibration UI on app (progress + success indicator)", "Manual capture button, as decided"],
+      ["must-9", "Sync / connection status indicator on app", "Cheap, makes demo look intentional"],
+      ["must-10", "Live 3D skeleton view on dashboard", "The core visual payoff"],
+      ["must-11", "Rep counter + joint angle readout on dashboard", "Reuses data you're already computing"],
+      ["must-12", "LLM auto-feedback call (single-shot, per rep or session end)", "Structured data in, coaching text out — no chat UI"],
+      ["must-13", "Fallback decision made by your internal cutoff hour", "2D-only floor demo ready if stereo calib isn't trustworthy"],
+      ["must-14", "Backup video of a successful run recorded", "In case live hardware misbehaves in front of judges"]
+    ]
+  },
+  {
+    key: "nice",
+    tag: "tag-nice",
+    tagLabel: "Nice If Time",
+    title: "Add only after everything above works reliably",
+    note: "Each of these should take under 30–45 min since they reuse data you already compute.",
+    items: [
+      ["nice-1", "Live calibration quality badge on dashboard", "Surface your real reprojection error number"],
+      ["nice-2", "Left/right symmetry or asymmetry flag", "Only possible because you have multi-view — good differentiator"],
+      ["nice-3", "Tempo / time-under-tension readout", "Timestamp your existing rep state transitions"],
+      ["nice-4", "Session summary card with closing LLM note", "One more call to the same feedback function"],
+      ["nice-5", "Form-score trend chart across reps", "Small recharts addition"],
+      ["nice-6", "\"Ask coach\" preset button", "Fixed prompt, not free text — illusion of interactivity"],
+      ["nice-7", "3rd phone integration", "Only attempt after 2-phone demo is rock solid live"]
+    ]
+  },
+  {
+    key: "future",
+    tag: "tag-future",
+    tagLabel: "Future Scope Only",
+    title: "List in the presentation — do not attempt to build",
+    note: "Frame these as deliberate scope decisions, not things you ran out of time for.",
+    items: [
+      ["future-1", "Full conversational chatbot coach", "Reuses same structured session data as the auto-feedback call"],
+      ["future-2", "Multi-exercise generalization", "Config-driven angle thresholds per exercise"],
+      ["future-3", "Injury-risk pattern detection", "Soft pattern-flagging only, careful framing — not a medical claim"],
+      ["future-4", "Cross-session progress tracking", "Needs persistence/auth, out of scope for 24h"],
+      ["future-5", "Voice-coached live mode", "TTS feedback mid-set — adds timing risk to a live demo"]
+    ]
+  }
+];
+
+const STORAGE_KEY = "formfusion-checklist-state";
+let state = {};
+
+async function loadState(){
+  try{
+    const res = await window.storage.get(STORAGE_KEY, false);
+    state = res ? JSON.parse(res.value) : {};
+  }catch(e){
+    state = {};
+  }
+}
+
+async function saveState(){
+  try{
+    await window.storage.set(STORAGE_KEY, JSON.stringify(state), false);
+  }catch(e){
+    console.error("Save failed", e);
+  }
+}
+
+function totalItems(){
+  return DATA.reduce((sum, s) => sum + s.items.length, 0);
+}
+
+function doneCount(){
+  return Object.values(state).filter(Boolean).length;
+}
+
+function updateProgress(){
+  const total = totalItems();
+  const done = doneCount();
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById("progressFill").style.width = pct + "%";
+  document.getElementById("progressLabel").textContent = `${done} / ${total} done (${pct}%)`;
+}
+
+function render(){
+  const container = document.getElementById("sections");
+  container.className = "";
+  container.innerHTML = "";
+
+  DATA.forEach(section => {
+    const sectionEl = document.createElement("div");
+    sectionEl.className = "section";
+
+    const head = document.createElement("div");
+    head.className = "section-head";
+    head.innerHTML = `<span class="tag ${section.tag}">${section.tagLabel}</span><span class="section-title">${section.title}</span>`;
+    sectionEl.appendChild(head);
+
+    const note = document.createElement("div");
+    note.className = "section-note";
+    note.textContent = section.note;
+    sectionEl.appendChild(note);
+
+    const card = document.createElement("div");
+    card.className = "card";
+
+    section.items.forEach(([id, text, sub]) => {
+      const item = document.createElement("div");
+      item.className = "item" + (state[id] ? " done" : "");
+      item.innerHTML = `
+        <div class="check">✓</div>
+        <div>
+          <div class="item-text">${text}</div>
+          <div class="item-sub">${sub}</div>
+        </div>
+      `;
+      item.addEventListener("click", async () => {
+        state[id] = !state[id];
+        item.classList.toggle("done");
+        updateProgress();
+        await saveState();
+      });
+      card.appendChild(item);
+    });
+
+    sectionEl.appendChild(card);
+    container.appendChild(sectionEl);
+  });
+}
+
+document.getElementById("resetBtn").addEventListener("click", async () => {
+  state = {};
+  await saveState();
+  render();
+  updateProgress();
+});
+
+(async function init(){
+  await loadState();
+  render();
+  updateProgress();
+})();
+</script>
+</body>
+</html>
