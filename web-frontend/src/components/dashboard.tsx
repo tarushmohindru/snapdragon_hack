@@ -5,13 +5,19 @@ import {
   Activity,
   Camera,
   Check,
+  ChevronRight,
   CircleGauge,
   Clock3,
+  Focus,
+  Orbit,
+  Radio,
   RefreshCcw,
+  ScanLine,
   ShieldCheck,
   TriangleAlert,
   Waves,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { useInterval } from "usehooks-ts";
@@ -26,15 +32,25 @@ import { LiveSessionBridge } from "./live-session-bridge";
 
 const SkeletonScene = dynamic(() => import("./skeleton-scene"), {
   ssr: false,
-  loading: () => <StageMessage title="Preparing 3D viewport" detail="Loading renderer…" />,
+  loading: () => <StageMessage title="Initializing spatial engine" detail="Loading the 3D renderer" />,
 });
+
+const reveal = {
+  hidden: { opacity: 0, y: 18 },
+  visible: { opacity: 1, y: 0 },
+};
 
 function StageMessage({ title, detail }: { title: string; detail: string }) {
   return (
     <div className={styles.stageMessage}>
-      <div className={styles.stageGlyph}><Waves size={25} /></div>
+      <div className={styles.stageSignal}>
+        <span />
+        <span />
+        <span />
+      </div>
+      <p>Spatial feed</p>
       <strong>{title}</strong>
-      <p>{detail}</p>
+      <small>{detail}</small>
     </div>
   );
 }
@@ -66,156 +82,239 @@ export function Dashboard() {
   const dataAge = lastMessageAt ? now - lastMessageAt : null;
   const stale = dataAge !== null && dataAge > 3_000;
   const devices = session?.device_ids.length ?? 0;
+  const jointCount = latest ? Object.keys(latest.joints_3d).length : 0;
 
   const stage = useMemo(() => {
     if (!config) {
-      return <StageMessage title="Connect a live session" detail="Enter the backend session credentials above." />;
+      return <StageMessage title="No session linked" detail="Open the connection deck to enter session credentials" />;
     }
     if (sessionQuery.isLoading) {
-      return <StageMessage title="Loading session" detail="Checking device and calibration state…" />;
+      return <StageMessage title="Reading session state" detail="Checking cameras and calibration" />;
     }
     if (sessionQuery.isError) {
-      return <StageMessage title="Session unavailable" detail="The backend did not return this session." />;
+      return <StageMessage title="Session unavailable" detail="Verify the backend URL and session ID" />;
     }
     if (phase === "connecting" || phase === "reconnecting") {
-      return <StageMessage title="Establishing live link" detail="The dashboard will resume automatically." />;
+      return <StageMessage title="Reacquiring signal" detail="The live link will resume automatically" />;
     }
     if (devices < 2) {
-      return <StageMessage title="Waiting for both cameras" detail={`${devices} of 2 pose devices have joined.`} />;
+      return <StageMessage title="Awaiting camera array" detail={`${devices} of 2 pose devices have joined`} />;
     }
     if (session && !session.calibrated) {
-      return <StageMessage title="Calibration required" detail="Complete paired checkerboard capture before 3D reconstruction." />;
+      return <StageMessage title="Spatial calibration pending" detail="Complete paired checkerboard capture to unlock 3D" />;
     }
     if (!latest) {
-      return <StageMessage title="Waiting for synchronized frames" detail="Both phones are connected; no 3D result has arrived yet." />;
+      return <StageMessage title="Awaiting synchronized motion" detail="Both cameras are ready; no paired frame has arrived" />;
     }
-    if (!Object.keys(latest.joints_3d).length) {
-      return <StageMessage title="No valid joints in this frame" detail="The viewport will resume when both cameras return confident matching keypoints." />;
+    if (!jointCount) {
+      return <StageMessage title="No confident joint match" detail="The viewport resumes when both views agree" />;
     }
     if (stale) {
-      return <StageMessage title="Live data paused" detail="The last pose result is stale. Reconnecting without clearing the session." />;
+      return <StageMessage title="Motion stream paused" detail="The last result is stale; the session remains intact" />;
     }
     return <SkeletonScene joints={latest.joints_3d} />;
-  }, [config, devices, latest, phase, session, sessionQuery.isError, sessionQuery.isLoading, stale]);
+  }, [config, devices, jointCount, latest, phase, session, sessionQuery.isError, sessionQuery.isLoading, stale]);
 
   const quality = latest?.form_quality;
   const qualityLabel = quality === "good" ? "Good rep" : quality === "check" ? "Check form" : "Awaiting assessment";
   const qualityTone = quality === "good" ? styles.good : quality === "check" ? styles.warning : styles.neutral;
+  const liveState = stale ? "signal stale" : latest ? "live capture" : "standing by";
 
   return (
-    <main className={styles.shell}>
+    <motion.main
+      className={styles.shell}
+      initial="hidden"
+      animate="visible"
+      transition={{ staggerChildren: 0.08 }}
+    >
       <LiveSessionBridge config={config} />
-      <header className={styles.header}>
+
+      <motion.header className={styles.header} variants={reveal} transition={{ duration: 0.65 }}>
         <div className={styles.brandBlock}>
-          <span className={styles.brandMark}><Activity size={20} /></span>
+          <span className={styles.brandGlyph}>
+            <ScanLine size={22} strokeWidth={1.7} />
+          </span>
           <div>
-            <p>FORMFUSION / MOTION LAB</p>
-            <h1>Live biomechanics</h1>
+            <strong>FORMFUSION</strong>
+            <small>Spatial motion intelligence</small>
           </div>
         </div>
-        <div className={styles.headerMeta}>
-          <span><Clock3 size={14} /> {latest ? new Date(latest.captured_at_ms).toLocaleTimeString() : "No frame"}</span>
-          <span><ShieldCheck size={14} /> On-device inference</span>
+
+        <div className={styles.headerCenter}>
+          <span>SESSION</span>
+          <strong>{config?.sessionId ?? "NOT LINKED"}</strong>
         </div>
-      </header>
 
-      <ConnectionPanel
-        config={config}
-        phase={phase}
-        onConnect={(nextConfig) => {
-          reset();
-          setConfig(nextConfig);
-        }}
-        onDisconnect={() => {
-          setConfig(null);
-          reset();
-        }}
-      />
-
-      {error && (
-        <div className={styles.errorBanner} role="alert">
-          <TriangleAlert size={17} />
-          <span>{error}</span>
+        <div className={styles.headerTools}>
+          <span className={styles.secureLabel}><ShieldCheck size={14} /> On-device inference</span>
+          <span className={`${styles.liveState} ${latest && !stale ? styles.liveStateActive : ""}`}>
+            <i /> {liveState}
+          </span>
         </div>
-      )}
+      </motion.header>
 
-      <section className={styles.workspace}>
-        <article className={styles.skeletonCard}>
-          <div className={styles.cardHeading}>
+      <motion.div variants={reveal} transition={{ duration: 0.65 }}>
+        <ConnectionPanel
+          config={config}
+          phase={phase}
+          onConnect={(nextConfig) => {
+            reset();
+            setConfig(nextConfig);
+          }}
+          onDisconnect={() => {
+            setConfig(null);
+            reset();
+          }}
+        />
+      </motion.div>
+
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            className={styles.errorBanner}
+            role="alert"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <TriangleAlert size={16} />
+            <span>{error}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.section className={styles.kinematicDeck} variants={reveal} transition={{ duration: 0.8 }}>
+        <article className={styles.stagePanel}>
+          <div className={styles.verticalWord} aria-hidden="true">KINEMATICS</div>
+          <div className={styles.stageTopline}>
             <div>
-              <span>3D RECONSTRUCTION</span>
-              <h2>{formatExercise(session?.exercise)}</h2>
+              <span className={styles.eyebrow}>LIVE 3D RECONSTRUCTION</span>
+              <h1>
+                Human motion,
+                <em> resolved.</em>
+              </h1>
             </div>
-            <div className={`${styles.liveBadge} ${stale || !latest ? styles.inactiveBadge : ""}`}>
-              <span /> {stale ? "STALE" : latest ? "LIVE" : "STANDBY"}
+            <div className={styles.stageIndex}>
+              <span>ACTIVE PROTOCOL</span>
+              <strong>{formatExercise(session?.exercise)}</strong>
             </div>
           </div>
-          <div className={styles.scene}>{stage}</div>
-          <footer className={styles.sceneFooter}>
-            <span>Drag to orbit</span>
-            <span>{latest ? `${Object.keys(latest.joints_3d).length} joints reconstructed` : "No pose frame"}</span>
-          </footer>
+
+          <div className={styles.scene}>
+            <div className={styles.scanLine} />
+            <div className={`${styles.corner} ${styles.cornerA}`} />
+            <div className={`${styles.corner} ${styles.cornerB}`} />
+            <div className={`${styles.corner} ${styles.cornerC}`} />
+            <div className={`${styles.corner} ${styles.cornerD}`} />
+            {stage}
+
+            <div className={styles.angleOverlay}>
+              <span>PRIMARY ANGLE</span>
+              <div>
+                <strong>{latest?.joint_angle_degrees?.toFixed(1) ?? "—"}</strong>
+                <small>°</small>
+              </div>
+              <p>{latest ? latest.state : "No movement state"}</p>
+            </div>
+
+            <div className={styles.sceneCompass}>
+              <Orbit size={15} />
+              <span>DRAG TO ORBIT</span>
+            </div>
+          </div>
+
+          <div className={styles.stageFootline}>
+            <span><Radio size={13} /> {latest ? `${jointCount} spatial joints` : "No pose frame"}</span>
+            <span><Clock3 size={13} /> {latest ? new Date(latest.captured_at_ms).toLocaleTimeString() : "Awaiting timestamp"}</span>
+            <span><Waves size={13} /> {latest ? `${latest.pairing_delta_ms} ms stereo delta` : "Pairing inactive"}</span>
+          </div>
         </article>
 
-        <aside className={styles.telemetryColumn}>
-          <article className={styles.angleCard}>
-            <div className={styles.cardLabel}><CircleGauge size={15} /> TRACKED JOINT ANGLE</div>
-            <div className={styles.angleValue}>
-              <strong>{latest?.joint_angle_degrees?.toFixed(1) ?? "—"}</strong>
-              <span>°</span>
-            </div>
-            <p>{latest ? `Movement state: ${latest.state}` : "Waiting for a computed angle"}</p>
-          </article>
+        <aside className={styles.instrumentRail}>
+          <section className={styles.railIntro}>
+            <span>PERFORMANCE SIGNAL</span>
+            <h2>One body.<br /><em>Two perspectives.</em></h2>
+            <p>Live multi-camera reconstruction translated into coaching-ready movement data.</p>
+          </section>
 
-          <article className={styles.repCard}>
-            <div>
-              <span>REP COUNT</span>
-              <strong>{latest?.rep_count ?? "—"}</strong>
+          <section className={styles.repInstrument}>
+            <div className={styles.instrumentLabel}>
+              <Activity size={15} />
+              <span>REPETITION INDEX</span>
             </div>
-            <div className={`${styles.qualityPill} ${qualityTone}`}>
-              {quality === "good" ? <Check size={16} /> : quality === "check" ? <TriangleAlert size={16} /> : <Waves size={16} />}
-              <span>{qualityLabel}</span>
+            <strong>{latest?.rep_count ?? "—"}</strong>
+            <div className={styles.repScale} aria-hidden="true">
+              {Array.from({ length: 12 }, (_, index) => <i key={index} />)}
             </div>
-            <p>{latest?.form_feedback ?? (quality ? "Assessment received from the backend." : "The backend has not supplied a form-quality result yet.")}</p>
-          </article>
+          </section>
 
-          <article className={styles.calibrationCard}>
-            <div className={styles.cardHeadingCompact}>
+          <section className={styles.qualityInstrument}>
+            <div className={styles.instrumentLabel}>
+              <Focus size={15} />
+              <span>FORM ASSESSMENT</span>
+            </div>
+            <div className={`${styles.qualityStatus} ${qualityTone}`}>
+              <span>{quality === "good" ? <Check size={18} /> : quality === "check" ? <TriangleAlert size={18} /> : <Waves size={18} />}</span>
               <div>
-                <span>SYSTEM HEALTH</span>
-                <h3>Calibration</h3>
-              </div>
-              <span className={session?.calibrated ? styles.healthGood : styles.healthPending}>
-                {session?.calibrated ? "READY" : "PENDING"}
-              </span>
-            </div>
-            <div className={styles.calibrationGauge}>
-              <div className={styles.gaugeRail}><span style={{ width: latest?.reprojection_error !== null && latest?.reprojection_error !== undefined ? `${Math.max(4, Math.min(100, 100 - latest.reprojection_error * 40))}%` : "0%" }} /></div>
-              <div className={styles.gaugeReadout}>
-                <span>Reprojection error</span>
-                <strong>{latest?.reprojection_error?.toFixed(4) ?? "—"}<small> px</small></strong>
+                <strong>{qualityLabel}</strong>
+                <small>{latest?.form_feedback ?? "Waiting for backend assessment"}</small>
               </div>
             </div>
-            <div className={styles.healthRows}>
-              <span><Camera size={14} /> Cameras <strong>{devices}/2</strong></span>
-              <span><Waves size={14} /> Pair delta <strong>{latest ? `${latest.pairing_delta_ms} ms` : "—"}</strong></span>
-            </div>
-          </article>
-        </aside>
-      </section>
+          </section>
 
-      <section className={styles.historyCard}>
-        <div className={styles.historyHeader}>
-          <div>
-            <span>SESSION TRACE</span>
-            <h2>Angle over time</h2>
-          </div>
-          <button type="button" className={styles.ghostButton} onClick={clearHistory} disabled={!history.length}>
-            <RefreshCcw size={14} /> Clear trace
+          <section className={styles.calibrationInstrument}>
+            <div className={styles.instrumentHeader}>
+              <div className={styles.instrumentLabel}>
+                <CircleGauge size={15} />
+                <span>SPATIAL CALIBRATION</span>
+              </div>
+              <strong>{session?.calibrated ? "LOCKED" : "PENDING"}</strong>
+            </div>
+
+            <div className={styles.errorReadout}>
+              <span>REPROJECTION ERROR</span>
+              <div>
+                <strong>{latest?.reprojection_error?.toFixed(4) ?? "—"}</strong>
+                <small>PX</small>
+              </div>
+            </div>
+
+            <div className={styles.signalBar}>
+              <span style={{ width: latest?.reprojection_error !== null && latest?.reprojection_error !== undefined ? `${Math.max(4, Math.min(100, 100 - latest.reprojection_error * 40))}%` : "0%" }} />
+            </div>
+
+            <div className={styles.calibrationRows}>
+              <div><Camera size={14} /><span>Camera array</span><strong>{devices}/2</strong></div>
+              <div><Waves size={14} /><span>Stereo delta</span><strong>{latest ? `${latest.pairing_delta_ms} ms` : "—"}</strong></div>
+              <div><CircleGauge size={14} /><span>Calibration</span><strong>{session?.calibrated ? "Ready" : "Not ready"}</strong></div>
+            </div>
+          </section>
+        </aside>
+      </motion.section>
+
+      <motion.section className={styles.traceSection} variants={reveal} transition={{ duration: 0.8 }}>
+        <div className={styles.traceCopy}>
+          <span className={styles.eyebrow}>SESSION CHRONOLOGY</span>
+          <h2>Movement leaves<br /><em>a signature.</em></h2>
+          <p>The trace records every computed angle in this live browser session. Rep transitions remain visible without interrupting the 3D feed.</p>
+          <button type="button" onClick={clearHistory} disabled={!history.length}>
+            <RefreshCcw size={14} /> Reset trace
           </button>
         </div>
-        <div className={styles.chartWrap}><AngleHistoryChart history={history} /></div>
-      </section>
-    </main>
+        <div className={styles.chartPanel}>
+          <div className={styles.chartHeader}>
+            <span>ANGLE / TIME</span>
+            <div><i /> LIVE TELEMETRY <ChevronRight size={13} /></div>
+          </div>
+          <div className={styles.chartWrap}><AngleHistoryChart history={history} /></div>
+        </div>
+      </motion.section>
+
+      <motion.footer className={styles.footer} variants={reveal}>
+        <span>FORMFUSION © 2026</span>
+        <span>QUALCOMM AI-ACCELERATED MOTION ANALYSIS</span>
+        <span>SPATIAL SESSION / {config?.sessionId?.slice(0, 8) ?? "OFFLINE"}</span>
+      </motion.footer>
+    </motion.main>
   );
 }

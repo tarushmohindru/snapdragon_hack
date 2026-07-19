@@ -1,7 +1,15 @@
 "use client";
 
-import { Grid, Line, OrbitControls, PerspectiveCamera } from "@react-three/drei";
+import {
+  AdaptiveDpr,
+  Grid,
+  Line,
+  OrbitControls,
+  PerspectiveCamera,
+  Preload,
+} from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import { useMemo } from "react";
 import type { Vector3Tuple } from "three";
 
@@ -24,7 +32,7 @@ function normalizedJoints(joints: Record<string, [number, number, number]>) {
     (Math.min(...zs) + Math.max(...zs)) / 2,
   ];
   const height = Math.max(Math.max(...ys) - Math.min(...ys), 0.001);
-  const scale = 3.4 / height;
+  const scale = 3.55 / height;
   return Object.fromEntries(
     entries.map(([id, point]) => [
       id,
@@ -37,10 +45,27 @@ function normalizedJoints(joints: Record<string, [number, number, number]>) {
   );
 }
 
+function MeasurementRig() {
+  return (
+    <group position={[0, 0.08, 0]} rotation={[Math.PI / 2, 0, 0]}>
+      {[1.65, 2.15, 2.7].map((radius, index) => (
+        <mesh key={radius} rotation={[0, 0, index * 0.32]}>
+          <torusGeometry args={[radius, index === 0 ? 0.008 : 0.004, 6, 128]} />
+          <meshBasicMaterial
+            color={index === 0 ? "#8e84ff" : "#4d456a"}
+            transparent
+            opacity={index === 0 ? 0.5 : 0.36}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function Skeleton({ joints }: { joints: Record<string, [number, number, number]> }) {
   const points = useMemo(() => normalizedJoints(joints), [joints]);
   return (
-    <group position={[0, -1.7, 0]}>
+    <group position={[0, -1.78, 0]}>
       {EDGES.map(([start, end]) => {
         const from = points[String(start)];
         const to = points[String(end)];
@@ -49,18 +74,30 @@ function Skeleton({ joints }: { joints: Record<string, [number, number, number]>
           <Line
             key={`${start}-${end}`}
             points={[from, to]}
-            color="#5d5fef"
-            lineWidth={4}
+            color="#73efd0"
+            lineWidth={4.5}
             transparent
-            opacity={0.92}
+            opacity={0.95}
           />
         );
       })}
       {Object.entries(points).map(([id, position]) => (
-        <mesh key={id} position={position}>
-          <sphereGeometry args={[Number(id) <= 4 ? 0.055 : 0.075, 20, 20]} />
-          <meshStandardMaterial color="#ff6b5f" roughness={0.28} metalness={0.08} />
-        </mesh>
+        <group key={id} position={position}>
+          <mesh>
+            <sphereGeometry args={[Number(id) <= 4 ? 0.052 : 0.068, 24, 24]} />
+            <meshStandardMaterial
+              color="#fff4e8"
+              emissive="#ff745d"
+              emissiveIntensity={2.8}
+              roughness={0.22}
+              metalness={0.16}
+            />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[Number(id) <= 4 ? 0.078 : 0.1, 20, 20]} />
+            <meshBasicMaterial color="#ff745d" transparent opacity={0.1} />
+          </mesh>
+        </group>
       ))}
     </group>
   );
@@ -72,34 +109,51 @@ export default function SkeletonScene({
   joints: Record<string, [number, number, number]>;
 }) {
   return (
-    <Canvas dpr={[1, 1.7]} gl={{ antialias: true, alpha: true }}>
-      <PerspectiveCamera makeDefault position={[4.4, 2.2, 5.2]} fov={38} />
-      <ambientLight intensity={1.8} />
-      <directionalLight position={[3, 6, 4]} intensity={3.2} color="#ffffff" />
-      <directionalLight position={[-4, 2, -3]} intensity={2} color="#7779ff" />
+    <Canvas
+      dpr={[1, 1.75]}
+      gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+    >
+      <fog attach="fog" args={["#0f0c1c", 6.5, 12]} />
+      <PerspectiveCamera makeDefault position={[4.2, 2.25, 5.6]} fov={36} />
+      <ambientLight intensity={0.75} />
+      <directionalLight position={[3, 7, 4]} intensity={3.8} color="#fff4e8" />
+      <directionalLight position={[-4, 2, -3]} intensity={3.2} color="#8e84ff" />
+      <pointLight position={[0, 1.5, 2.5]} intensity={14} distance={6} color="#73efd0" />
+
+      <MeasurementRig />
       <Skeleton joints={joints} />
+
       <Grid
-        position={[0, -1.72, 0]}
-        args={[8, 8]}
+        position={[0, -1.8, 0]}
+        args={[9, 9]}
         cellSize={0.35}
-        cellThickness={0.6}
-        cellColor="#c7c8dc"
+        cellThickness={0.45}
+        cellColor="#342d4c"
         sectionSize={1.4}
-        sectionThickness={1.1}
-        sectionColor="#8e90b6"
+        sectionThickness={0.8}
+        sectionColor="#655a8b"
         fadeDistance={8}
-        fadeStrength={1.5}
+        fadeStrength={1.6}
         infiniteGrid
       />
+
       <OrbitControls
         makeDefault
         enablePan={false}
-        minDistance={4}
-        maxDistance={9}
-        minPolarAngle={Math.PI / 4}
-        maxPolarAngle={Math.PI / 2.05}
+        minDistance={4.2}
+        maxDistance={8.5}
+        minPolarAngle={Math.PI / 4.2}
+        maxPolarAngle={Math.PI / 2.03}
+        dampingFactor={0.065}
+        enableDamping
       />
+
+      <EffectComposer multisampling={0}>
+        <Bloom luminanceThreshold={0.42} luminanceSmoothing={0.7} intensity={1.05} mipmapBlur />
+        <Vignette eskil={false} offset={0.18} darkness={0.65} />
+      </EffectComposer>
+      <AdaptiveDpr pixelated />
+      <Preload all />
     </Canvas>
   );
 }
-

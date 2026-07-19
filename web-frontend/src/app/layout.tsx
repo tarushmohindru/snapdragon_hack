@@ -1,21 +1,28 @@
 import type { Metadata } from "next";
-import { Barlow_Condensed, IBM_Plex_Mono, Manrope } from "next/font/google";
+import { Azeret_Mono, Instrument_Serif, Syne } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const body = Manrope({
-  variable: "--font-body",
-  subsets: ["latin"],
-});
-
-const display = Barlow_Condensed({
+const display = Syne({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const mono = IBM_Plex_Mono({
+const editorial = Instrument_Serif({
+  variable: "--font-editorial",
+  subsets: ["latin"],
+  weight: "400",
+});
+
+const mono = Azeret_Mono({
   variable: "--font-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+
+const body = Syne({
+  variable: "--font-body",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
 });
@@ -31,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${body.variable} ${display.variable} ${mono.variable}`}>
+    <html lang="en" className={`${body.variable} ${display.variable} ${editorial.variable} ${mono.variable}`}>
       <body><Providers>{children}</Providers></body>
     </html>
   );

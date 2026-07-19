@@ -1,40 +1,68 @@
 :root {
-  --paper: #f3f2f7;
-  --surface: #fbfafc;
-  --ink: #181a31;
-  --muted: #747789;
-  --line: #dddce5;
-  --indigo: #5d5fef;
-  --coral: #ff6b5f;
-  --mint: #58c7a1;
-  --amber: #e4a23e;
+  --void: #0d0b18;
+  --night: #151126;
+  --plum: #211a38;
+  --plum-soft: #2b2345;
+  --bone: #eeeae2;
+  --bone-dim: #b9b3bd;
+  --periwinkle: #8e84ff;
+  --coral: #ff745d;
+  --mint: #73efd0;
+  --amber: #ffc46b;
+  --hairline: rgba(238, 234, 226, 0.13);
+  --hairline-bright: rgba(238, 234, 226, 0.25);
 }
 
 * { box-sizing: border-box; }
 
-html { background: var(--paper); }
+html {
+  min-width: 320px;
+  background: var(--void);
+  color-scheme: dark;
+}
 
 body {
   margin: 0;
   min-height: 100vh;
-  color: var(--ink);
+  color: var(--bone);
   background:
-    radial-gradient(circle at 76% 12%, rgba(93, 95, 239, 0.1), transparent 26rem),
-    var(--paper);
+    radial-gradient(circle at 14% -10%, rgba(142, 132, 255, 0.18), transparent 31rem),
+    radial-gradient(circle at 92% 25%, rgba(255, 116, 93, 0.08), transparent 28rem),
+    var(--void);
   font-family: var(--font-body), sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.18;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 140 140' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.17'/%3E%3C/svg%3E");
 }
 
 button, input { font: inherit; }
 button { color: inherit; }
+a { color: inherit; }
 
 button:focus-visible,
-input:focus-visible {
-  outline: 3px solid rgba(93, 95, 239, 0.28);
-  outline-offset: 2px;
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 3px;
 }
 
-::selection { background: rgba(93, 95, 239, 0.22); }
+::selection {
+  color: var(--void);
+  background: var(--mint);
+}
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--void); }
+::-webkit-scrollbar-thumb { background: var(--plum-soft); border-radius: 99px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
