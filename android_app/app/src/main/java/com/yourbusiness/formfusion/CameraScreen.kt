@@ -52,6 +52,7 @@ import com.yourbusiness.formfusion.ui.theme.Spacing
 import com.yourbusiness.formfusion.viewmodel.CameraEvent
 import com.yourbusiness.formfusion.viewmodel.CameraViewModel
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 // Pure View: detector selection and frame/landmark counting live in CameraViewModel.
 // Camera permission state stays here — it's Android UI plumbing (ActivityResult APIs),
@@ -140,6 +141,14 @@ fun CameraScreen(onBack: () -> Unit, onSessionEnded: (durationSeconds: Long) -> 
         onDispose {
             controller.unbind()
             analysisExecutor.shutdown()
+            // Wait for any in-flight analyze() call to finish before releasing the native
+            // TFLite/ONNX resources it uses — closing them while that background thread is
+            // still mid-inference is a concurrent-access native crash, not a catchable one.
+            try {
+                analysisExecutor.awaitTermination(1, TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
             viewModel.dispose()
         }
     }
