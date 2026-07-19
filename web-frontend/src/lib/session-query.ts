@@ -12,6 +12,19 @@ function sessionUrl(config: ConnectionConfig, suffix = "") {
   return `${config.backendUrl.replace(/\/$/, "")}/api/v1/sessions/${encodeURIComponent(config.sessionId)}${suffix}`;
 }
 
+export async function resolveSessionConfig(
+  config: ConnectionConfig,
+): Promise<ConnectionConfig> {
+  const identifier = config.sessionId.trim();
+  if (identifier.includes("-")) return { ...config, sessionId: identifier };
+  const response = await fetch(
+    `${config.backendUrl.replace(/\/$/, "")}/api/v1/sessions/resolve/${encodeURIComponent(identifier.toUpperCase())}`,
+  );
+  if (!response.ok) throw new Error("The session code is invalid or expired.");
+  const payload = (await response.json()) as { session_id: string };
+  return { ...config, sessionId: payload.session_id };
+}
+
 async function fetchSession(config: ConnectionConfig): Promise<SessionStatus> {
   const response = await fetch(
     sessionUrl(config),

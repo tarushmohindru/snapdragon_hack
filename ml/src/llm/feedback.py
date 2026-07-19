@@ -13,7 +13,12 @@ def get_realtime_status(
     settings: Settings,
 ) -> tuple[str, str, str]:
     if not settings.google_api_key:
-        raise AiNotConfigured("Google AI coaching is not configured")
+        cue = (
+            "Good control—maintain the same tempo."
+            if request.form_quality == "good"
+            else "Slow down and keep the tracked joint aligned."
+        )
+        return cue, "biomechanics", "rule-based-v1"
     prompt = (
         "You are a concise exercise coach. Give one actionable cue in no more than 10 words. "
         f"Exercise: {request.exercise}. Angle: {request.primary_angle_degrees}. "
@@ -42,7 +47,17 @@ def get_session_summary(
     settings: Settings,
 ) -> tuple[str, str, str]:
     if not settings.sarvam_api_key:
-        raise AiNotConfigured("Sarvam session summaries are not configured")
+        angle_text = (
+            f" Your tracked angle ranged from {request.angle_min:.1f}° to {request.angle_max:.1f}°."
+            if request.angle_min is not None and request.angle_max is not None
+            else ""
+        )
+        return (
+            f"You completed {request.total_reps} reps in {request.duration_seconds} seconds."
+            f"{angle_text} Keep a controlled tempo and consistent alignment next session.",
+            "biomechanics",
+            "rule-based-v1",
+        )
     prompt = (
         "You are reviewing a completed exercise session. Write a supportive 3-4 sentence "
         "summary with one specific improvement tip and no medical claims. "

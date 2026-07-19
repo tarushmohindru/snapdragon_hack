@@ -27,6 +27,10 @@ class JoinSessionResponse(StrictModel):
     expires_at: datetime
 
 
+class ResolveSessionResponse(StrictModel):
+    session_id: str
+
+
 class SessionStatusResponse(StrictModel):
     session_id: str
     exercise: str

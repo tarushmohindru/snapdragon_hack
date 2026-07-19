@@ -95,6 +95,15 @@ class SessionService:
     async def status(self, session_id: str) -> SessionStatusResponse:
         return self._status(await self.get_record(session_id))
 
+    async def resolve_join_code(self, join_code: str) -> str:
+        candidate = join_code.strip().upper()
+        for session in await self.repository.list_sessions(500):
+            expected = self._digest_join_code(session.session_id, candidate)
+            if secrets.compare_digest(expected, session.join_code_digest):
+                await self.get_record(session.session_id, allow_closed=False)
+                return session.session_id
+        raise InvalidJoinCode("join code is invalid or expired")
+
     async def list(self, limit: int) -> list[SessionStatusResponse]:
         return [
             self._status(session)

@@ -10,6 +10,7 @@ import {
   type ConnectionFormValues,
 } from "@/lib/connection-schema";
 import type { ConnectionConfig, ConnectionPhase } from "@/lib/contracts";
+import { resolveSessionConfig } from "@/lib/session-query";
 import styles from "./dashboard.module.css";
 
 type Props = {
@@ -21,6 +22,8 @@ type Props = {
 
 export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Props) {
   const [expanded, setExpanded] = useState(config === null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
   const {
     register,
     handleSubmit,
@@ -66,9 +69,17 @@ export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Prop
           ) : (
             <form
               className={styles.connectionForm}
-              onSubmit={handleSubmit((values) => {
-                onConnect(values);
-                setExpanded(false);
+              onSubmit={handleSubmit(async (values) => {
+                setResolving(true);
+                setResolveError(null);
+                try {
+                  onConnect(await resolveSessionConfig(values));
+                  setExpanded(false);
+                } catch (error) {
+                  setResolveError(error instanceof Error ? error.message : "Could not resolve session.");
+                } finally {
+                  setResolving(false);
+                }
               })}
             >
               <label>
@@ -77,12 +88,13 @@ export function ConnectionPanel({ config, phase, onConnect, onDisconnect }: Prop
                 {errors.backendUrl && <em>{errors.backendUrl.message}</em>}
               </label>
               <label>
-                <span>Session ID</span>
-                <input {...register("sessionId")} placeholder="Paste session ID" />
+                <span>Session code or ID</span>
+                <input {...register("sessionId")} placeholder="Example: DRMU0WYV" />
                 {errors.sessionId && <em>{errors.sessionId.message}</em>}
+                {resolveError && <em>{resolveError}</em>}
               </label>
-              <button type="submit" className={styles.primaryButton} disabled={connecting}>
-                {connecting ? <LoaderCircle className={styles.spin} size={17} /> : <Cable size={17} />}
+              <button type="submit" className={styles.primaryButton} disabled={connecting || resolving}>
+                {connecting || resolving ? <LoaderCircle className={styles.spin} size={17} /> : <Cable size={17} />}
                 Connect live session
               </button>
             </form>

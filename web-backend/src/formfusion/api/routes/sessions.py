@@ -17,6 +17,7 @@ from formfusion.contracts.http import (
     JoinSessionRequest,
     JoinSessionResponse,
     ProjectionCalibrationRequest,
+    ResolveSessionResponse,
     SessionResultsResponse,
     SessionStatusResponse,
     SessionSummaryResponse,
@@ -42,6 +43,14 @@ async def list_sessions(
     service: SessionService = Depends(sessions),
 ) -> list[SessionStatusResponse]:
     return await service.list(limit)
+
+
+@router.get("/resolve/{join_code}", response_model=ResolveSessionResponse)
+async def resolve_session(
+    join_code: str,
+    service: SessionService = Depends(sessions),
+) -> ResolveSessionResponse:
+    return ResolveSessionResponse(session_id=await service.resolve_join_code(join_code))
 
 
 @router.post("/{session_id}/join", response_model=JoinSessionResponse)
