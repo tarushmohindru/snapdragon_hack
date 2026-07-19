@@ -22,10 +22,12 @@ const EDGES = [
 ] as const;
 
 function normalizedJoints(joints: Record<string, Joint3D>) {
-  const entries = Object.entries(joints).map(([id, point]) => [
-    id,
-    [point.x, point.y, point.z] satisfies Vector3Tuple,
-  ] as const);
+  const entries = Object.entries(joints)
+    .filter(([id, point]) => Number(id) <= 22 && point.confidence >= 0.05)
+    .map(([id, point]) => [
+      id,
+      [point.x, point.y, point.z] satisfies Vector3Tuple,
+    ] as const);
   if (!entries.length) return {};
   const xs = entries.map(([, point]) => point[0]);
   const ys = entries.map(([, point]) => point[1]);
@@ -36,7 +38,7 @@ function normalizedJoints(joints: Record<string, Joint3D>) {
     (Math.min(...zs) + Math.max(...zs)) / 2,
   ];
   const height = Math.max(Math.max(...ys) - Math.min(...ys), 0.001);
-  const scale = 3.55 / height;
+  const scale = 3.0 / height;
   const maxDepth = height * 0.75;
   return Object.fromEntries(
     entries.map(([id, point]) => [
@@ -119,7 +121,7 @@ export default function SkeletonScene({
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
     >
       <fog attach="fog" args={["#0f0c1c", 6.5, 12]} />
-      <OrthographicCamera makeDefault position={[0, 0, 8]} zoom={105} />
+      <OrthographicCamera makeDefault position={[0, 0, 8]} zoom={92} />
       <ambientLight intensity={0.75} />
       <directionalLight position={[3, 7, 4]} intensity={3.8} color="#fff4e8" />
       <directionalLight position={[-4, 2, -3]} intensity={3.2} color="#8e84ff" />
