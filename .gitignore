@@ -1,3 +1,5 @@
+ml/export_assets
+ml/.venv
 *.iml
 .gradle
 /local.properties

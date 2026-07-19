@@ -1,0 +1,49 @@
+{
+    "model_id": "rtmpose_body2d",
+    "model_name": "RTMPose-Body2d",
+    "runtime": "onnx",
+    "precision": "float",
+    "tool_versions": {
+        "qairt": "2.45.0.260326154327",
+        "onnx_runtime": "1.26.0"
+    },
+    "model_files": {
+        "rtmpose_body2d.onnx": {
+            "inputs": {
+                "image": {
+                    "shape": [
+                        1,
+                        3,
+                        256,
+                        192
+                    ],
+                    "dtype": "float32",
+                    "io_type": "image",
+                    "image_metadata": {},
+                    "value_range": [
+                        0.0,
+                        1.0
+                    ]
+                }
+            },
+            "outputs": {
+                "pred_x": {
+                    "shape": [
+                        1,
+                        133,
+                        384
+                    ],
+                    "dtype": "float32"
+                },
+                "pred_y": {
+                    "shape": [
+                        1,
+                        133,
+                        512
+                    ],
+                    "dtype": "float32"
+                }
+            }
+        }
+    }
+}
