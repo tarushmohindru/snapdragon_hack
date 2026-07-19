@@ -4,6 +4,7 @@ import type {
   AngleSample,
   ConnectionPhase,
   PoseResult,
+  PosePreview,
   SessionSocketStatus,
 } from "@/lib/contracts";
 
@@ -12,6 +13,7 @@ const MAX_HISTORY_SAMPLES = 600;
 type LiveSessionState = {
   phase: ConnectionPhase;
   latest: PoseResult | null;
+  preview: PosePreview | null;
   socketStatus: SessionSocketStatus | null;
   history: AngleSample[];
   connectedAt: number | null;
@@ -21,6 +23,7 @@ type LiveSessionState = {
   setError: (error: string | null) => void;
   setSocketStatus: (status: SessionSocketStatus) => void;
   applyResult: (result: PoseResult) => void;
+  applyPreview: (preview: PosePreview) => void;
   hydrateResults: (results: PoseResult[]) => void;
   reset: () => void;
   clearHistory: () => void;
@@ -29,6 +32,7 @@ type LiveSessionState = {
 const initialState = {
   phase: "idle" as ConnectionPhase,
   latest: null,
+  preview: null,
   socketStatus: null,
   history: [] as AngleSample[],
   connectedAt: null as number | null,
@@ -69,6 +73,8 @@ export const useLiveSessionStore = create<LiveSessionState>((set) => ({
           : state.history,
       };
     }),
+  applyPreview: (preview) =>
+    set({ preview, phase: "connected", lastMessageAt: Date.now(), error: null }),
   hydrateResults: (results) =>
     set((state) => {
       if (!results.length || state.latest) return state;

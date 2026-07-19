@@ -99,6 +99,21 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
                 raise Unauthorized("frame identity does not match the connection hello")
 
             FRAMES_RECEIVED.inc()
+            await manager.broadcast(
+                session_id,
+                {
+                    "schema_version": 1,
+                    "type": "pose.preview",
+                    "session_id": session_id,
+                    "device_id": frame.device_id,
+                    "frame_id": frame.frame_id,
+                    "captured_at_ms": frame.captured_at_ms,
+                    "image": frame.image.model_dump(mode="json"),
+                    "keypoints": [
+                        point.model_dump(mode="json") for point in frame.person.keypoints
+                    ],
+                },
+            )
             runtime = await registry.get(session_id)
             outcome = runtime.synchronizer.push(frame)
             if outcome.dropped_frame_ids:

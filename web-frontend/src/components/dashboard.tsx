@@ -72,6 +72,7 @@ export function Dashboard() {
   const [now, setNow] = useState(0);
   const phase = useLiveSessionStore((state) => state.phase);
   const latest = useLiveSessionStore((state) => state.latest);
+  const preview = useLiveSessionStore((state) => state.preview);
   const history = useLiveSessionStore((state) => state.history);
   const error = useLiveSessionStore((state) => state.error);
   const lastMessageAt = useLiveSessionStore((state) => state.lastMessageAt);
@@ -79,7 +80,7 @@ export function Dashboard() {
   const clearHistory = useLiveSessionStore((state) => state.clearHistory);
   const hydrateResults = useLiveSessionStore((state) => state.hydrateResults);
 
-  useInterval(() => setNow(Date.now()), 1_000);
+  useInterval(() => setNow(Date.now()), 250);
 
   const sessionQuery = useQuery(
     config
@@ -108,9 +109,26 @@ export function Dashboard() {
     },
   });
   const dataAge = lastMessageAt ? now - lastMessageAt : null;
-  const stale = dataAge !== null && dataAge > 3_000;
+  const stale = dataAge !== null && dataAge > 1_250;
   const devices = session?.device_ids.length ?? 0;
   const jointCount = latest ? Object.keys(latest.joints_3d).length : 0;
+  const previewJoints = useMemo(() => {
+    if (!preview) return null;
+    return Object.fromEntries(
+      preview.keypoints
+        .filter((point) => point.confidence > 0.05)
+        .map((point) => [
+          String(point.id),
+          {
+            x: point.x / preview.image.width,
+            y: point.y / preview.image.height,
+            z: 0,
+            confidence: point.confidence,
+            observations: 1,
+          },
+        ]),
+    );
+  }, [preview]);
 
   const stage = useMemo(() => {
     if (!config) {
@@ -125,11 +143,14 @@ export function Dashboard() {
     if (phase === "connecting" || phase === "reconnecting") {
       return <StageMessage title="Reacquiring signal" detail="The live link will resume automatically" />;
     }
-    if (devices < 2) {
-      return <StageMessage title="Awaiting camera array" detail={`${devices} of 2 pose devices have joined`} />;
+    if (!latest && previewJoints && Object.keys(previewJoints).length) {
+      return <SkeletonScene joints={previewJoints} />;
     }
-    if (session && !session.calibrated) {
-      return <StageMessage title="Spatial calibration pending" detail="Complete paired checkerboard capture to unlock 3D" />;
+    if (!latest && devices < 2) {
+      return <StageMessage title="Awaiting second camera" detail={`${devices} of 2 phones joined · showing phone pose when detected`} />;
+    }
+    if (!latest && session && !session.calibrated) {
+      return <StageMessage title="Waiting for phone pose" detail="Calibration is pending; live 2D preview appears as soon as a phone detects you" />;
     }
     if (!latest) {
       return <StageMessage title="Awaiting synchronized motion" detail="Both cameras are ready; no paired frame has arrived" />;
@@ -137,11 +158,8 @@ export function Dashboard() {
     if (!jointCount) {
       return <StageMessage title="No confident joint match" detail="The viewport resumes when both views agree" />;
     }
-    if (stale) {
-      return <StageMessage title="Motion stream paused" detail="The last result is stale; the session remains intact" />;
-    }
     return <SkeletonScene joints={latest.joints_3d} />;
-  }, [config, devices, jointCount, latest, phase, session, sessionQuery.isError, sessionQuery.isLoading, stale]);
+  }, [config, devices, jointCount, latest, phase, previewJoints, session, sessionQuery.isError, sessionQuery.isLoading]);
 
   const quality = latest?.form_quality;
   const qualityLabel = quality === "good" ? "Good rep" : quality === "check" ? "Check form" : "Awaiting assessment";
@@ -247,8 +265,14 @@ export function Dashboard() {
 
             <div className={styles.sceneCompass}>
               <Orbit size={15} />
-              <span>DRAG TO ORBIT</span>
+              <span>DRAG TO ORBIT · SCROLL TO ZOOM</span>
             </div>
+
+            {stale && latest && (
+              <div className={styles.staleBadge}>
+                <TriangleAlert size={13} /> Last valid pose · waiting for new frames
+              </div>
+            )}
           </div>
 
           <div className={styles.stageFootline}>

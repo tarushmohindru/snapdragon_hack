@@ -4,8 +4,8 @@ import {
   AdaptiveDpr,
   Grid,
   Line,
+  OrthographicCamera,
   OrbitControls,
-  PerspectiveCamera,
   Preload,
 } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
@@ -32,7 +32,7 @@ function normalizedJoints(joints: Record<string, Joint3D>) {
   const zs = entries.map(([, point]) => point[2]);
   const center: Vector3Tuple = [
     (Math.min(...xs) + Math.max(...xs)) / 2,
-    Math.min(...ys),
+    (Math.min(...ys) + Math.max(...ys)) / 2,
     (Math.min(...zs) + Math.max(...zs)) / 2,
   ];
   const height = Math.max(Math.max(...ys) - Math.min(...ys), 0.001);
@@ -44,7 +44,7 @@ function normalizedJoints(joints: Record<string, Joint3D>) {
       [
         (point[0] - center[0]) * scale,
         -(point[1] - center[1]) * scale,
-        Math.max(-maxDepth, Math.min(maxDepth, point[2] - center[2])) * scale,
+        Math.max(-maxDepth, Math.min(maxDepth, point[2] - center[2])) * scale * 0.38,
       ] satisfies Vector3Tuple,
     ]),
   );
@@ -70,7 +70,7 @@ function MeasurementRig() {
 function Skeleton({ joints }: { joints: Record<string, Joint3D> }) {
   const points = useMemo(() => normalizedJoints(joints), [joints]);
   return (
-    <group position={[0, -1.78, 0]}>
+    <group>
       {EDGES.map(([start, end]) => {
         const from = points[String(start)];
         const to = points[String(end)];
@@ -119,7 +119,7 @@ export default function SkeletonScene({
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
     >
       <fog attach="fog" args={["#0f0c1c", 6.5, 12]} />
-      <PerspectiveCamera makeDefault position={[4.2, 2.25, 5.6]} fov={36} />
+      <OrthographicCamera makeDefault position={[0, 0, 8]} zoom={105} />
       <ambientLight intensity={0.75} />
       <directionalLight position={[3, 7, 4]} intensity={3.8} color="#fff4e8" />
       <directionalLight position={[-4, 2, -3]} intensity={3.2} color="#8e84ff" />
@@ -129,7 +129,7 @@ export default function SkeletonScene({
       <Skeleton joints={joints} />
 
       <Grid
-        position={[0, -1.8, 0]}
+        position={[0, -2.2, 0]}
         args={[9, 9]}
         cellSize={0.35}
         cellThickness={0.45}
@@ -145,10 +145,9 @@ export default function SkeletonScene({
       <OrbitControls
         makeDefault
         enablePan={false}
-        minDistance={4.2}
-        maxDistance={8.5}
-        minPolarAngle={Math.PI / 4.2}
-        maxPolarAngle={Math.PI / 2.03}
+        enableZoom
+        minZoom={70}
+        maxZoom={180}
         dampingFactor={0.065}
         enableDamping
       />

@@ -19,6 +19,7 @@ function socketUrl(config: ConnectionConfig): string {
 export function LiveSessionBridge({ config }: { config: ConnectionConfig | null }) {
   const queryClient = useQueryClient();
   const applyResult = useLiveSessionStore((state) => state.applyResult);
+  const applyPreview = useLiveSessionStore((state) => state.applyPreview);
   const setError = useLiveSessionStore((state) => state.setError);
   const setPhase = useLiveSessionStore((state) => state.setPhase);
   const setSocketStatus = useLiveSessionStore((state) => state.setSocketStatus);
@@ -83,12 +84,13 @@ export function LiveSessionBridge({ config }: { config: ConnectionConfig | null 
   useEffect(() => {
     if (!lastJsonMessage) return;
     if (lastJsonMessage.type === "pose.result") applyResult(lastJsonMessage);
+    if (lastJsonMessage.type === "pose.preview") applyPreview(lastJsonMessage);
     if (lastJsonMessage.type === "session.status") {
       setSocketStatus(lastJsonMessage);
       void queryClient.invalidateQueries({ queryKey: ["session"] });
     }
     if (lastJsonMessage.type === "error") setError(lastJsonMessage.message);
-  }, [applyResult, lastJsonMessage, queryClient, setError, setSocketStatus]);
+  }, [applyPreview, applyResult, lastJsonMessage, queryClient, setError, setSocketStatus]);
 
   return null;
 }

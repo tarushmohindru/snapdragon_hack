@@ -99,10 +99,22 @@ export type SessionSocketStatus = {
   calibrated: boolean;
 };
 
+export type PosePreview = {
+  schema_version: 1;
+  type: "pose.preview";
+  session_id: string;
+  device_id: string;
+  frame_id: number;
+  captured_at_ms: number;
+  image: { width: number; height: number; rotation_degrees: number; mirrored: boolean };
+  keypoints: Array<{ id: number; x: number; y: number; confidence: number }>;
+};
+
 export type SocketMessage =
   | PoseResult
   | SocketError
   | SessionSocketStatus
+  | PosePreview
   | { schema_version: 1; type: "pong" };
 
 export type AngleSample = {
