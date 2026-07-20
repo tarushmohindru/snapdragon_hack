@@ -63,9 +63,11 @@ fun RoleScreen(
         )
 
         listOf(
-            "left_bicep_curl" to "Bicep curl",
-            "right_bicep_curl" to "Right bicep curl",
-            "squat" to "Squat",
+            "squats" to "Squats",
+            "deadlifts" to "Deadlifts",
+            "bench_press" to "Bench press",
+            "bicep_curls" to "Bicep curls",
+            "shoulder_press" to "Shoulder press"
         ).forEach { (id, label) ->
             SecondaryButton(
                 text = if (exercise == id) "✓ $label" else label,

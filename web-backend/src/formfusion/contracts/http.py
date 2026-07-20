@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field
 
@@ -6,7 +7,9 @@ from formfusion.contracts.common import StrictModel
 
 
 class CreateSessionRequest(StrictModel):
-    exercise: str = Field(default="left_bicep_curl", min_length=1, max_length=64)
+    exercise: Literal[
+        "squats", "deadlifts", "bench_press", "bicep_curls", "shoulder_press"
+    ] = "bicep_curls"
 
 
 class CreateSessionResponse(StrictModel):

@@ -225,6 +225,7 @@
 .angleOverlay p { margin: 11px 0 0; color: var(--mint); font: 500 8px var(--font-mono); letter-spacing: .13em; text-transform: uppercase; }
 .sceneCompass { position: absolute; right: 30px; bottom: 31px; z-index: 5; display: flex; align-items: center; gap: 8px; color: var(--bone-dim); font: 500 7px var(--font-mono); letter-spacing: .12em; }
 .staleBadge { position: absolute; top: 22px; left: 50%; z-index: 7; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid rgba(255,196,107,.38); border-radius: 999px; color: var(--amber); background: rgba(13,11,24,.82); backdrop-filter: blur(14px); font: 500 8px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.previewBadge { position: absolute; top: 22px; right: 24px; z-index: 7; padding: 8px 11px; border: 1px solid rgba(115,239,208,.32); border-radius: 999px; color: var(--mint); background: rgba(13,11,24,.78); font: 500 7px var(--font-mono); letter-spacing: .1em; }
 
 .stageMessage { min-height: 650px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; z-index: 6; text-align: center; }
 .stageSignal { width: 94px; height: 94px; position: relative; margin-bottom: 23px; border: 1px solid rgba(142,132,255,.32); border-radius: 50%; }

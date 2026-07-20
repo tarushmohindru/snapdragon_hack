@@ -7,7 +7,7 @@ settings = get_settings()
 print("=== Testing real-time status (Gemini/Gemma) ===")
 status = get_realtime_status(
     RealtimeFeedbackRequest(
-        exercise="left_bicep_curl",
+        exercise="bicep_curls",
         primary_angle_degrees=95.0,
         rep_count=4,
         movement_state="up",
@@ -20,7 +20,7 @@ print("Status:", status)
 print("\n=== Testing session summary (Sarvam) ===")
 summary = get_session_summary(
     SessionSummaryRequest(
-        exercise="left_bicep_curl",
+        exercise="bicep_curls",
         total_reps=12,
         angle_min=42,
         angle_max=168,

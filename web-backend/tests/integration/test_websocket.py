@@ -28,6 +28,14 @@ def _frame(
     }
 
 
+def _receive_type(socket, message_type: str, limit: int = 6) -> dict:
+    for _ in range(limit):
+        message = socket.receive_json()
+        if message["type"] == message_type:
+            return message
+    raise AssertionError(f"did not receive {message_type}")
+
+
 def test_two_devices_and_dashboard_receive_pose_result(client) -> None:
     session = client.post("/api/v1/sessions", json={}).json()
     _join(client, session, "phone-a")
@@ -79,9 +87,9 @@ def test_two_devices_and_dashboard_receive_pose_result(client) -> None:
                 )
                 assert socket_b.receive_json()["type"] == "session.status"
                 socket_a.send_json(_frame(session_id, "phone-a", 1, 1_000, 0.0))
-                assert socket_a.receive_json()["status"] == "queued"
+                assert _receive_type(socket_a, "frame.ack")["status"] == "queued"
                 socket_b.send_json(_frame(session_id, "phone-b", 2, 1_010, -0.2))
-                assert socket_b.receive_json()["status"] == "paired"
+                assert _receive_type(socket_b, "frame.ack")["status"] == "paired"
                 result = dashboard.receive_json()
                 assert result["type"] == "pose.result"
                 assert result["metadata"]["pairing_delta_ms"] == 10

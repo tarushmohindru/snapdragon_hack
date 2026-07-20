@@ -20,7 +20,7 @@ object SessionManager {
     var joinCode: String = ""
     var deviceId: String = ""
     var role: Role = Role.NONE
-    var exercise: String = "left_bicep_curl"
+    var exercise: String = "bicep_curls"
 
     val connectedCount = MutableStateFlow(0)
     val calibrated = MutableStateFlow(false)

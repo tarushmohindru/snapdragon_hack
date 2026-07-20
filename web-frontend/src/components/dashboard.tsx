@@ -64,7 +64,14 @@ function StageMessage({ title, detail }: { title: string; detail: string }) {
 
 function formatExercise(value?: string) {
   if (!value) return "Exercise not selected";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const labels: Record<string, string> = {
+    squats: "Squats",
+    deadlifts: "Deadlifts",
+    bench_press: "Bench press",
+    bicep_curls: "Bicep curls",
+    shoulder_press: "Shoulder press",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
 }
 
 export function Dashboard() {
@@ -129,6 +136,8 @@ export function Dashboard() {
         ]),
     );
   }, [preview]);
+  const approximateCalibration = latest?.metadata.calibration_id.startsWith("approximate-") ?? false;
+  const displayJoints = approximateCalibration && previewJoints ? previewJoints : latest?.joints_3d;
 
   const stage = useMemo(() => {
     if (!config) {
@@ -142,6 +151,9 @@ export function Dashboard() {
     }
     if (phase === "connecting" || phase === "reconnecting") {
       return <StageMessage title="Reacquiring signal" detail="The live link will resume automatically" />;
+    }
+    if (displayJoints && Object.keys(displayJoints).length) {
+      return <SkeletonScene joints={displayJoints} />;
     }
     if (!latest && previewJoints && Object.keys(previewJoints).length) {
       return <SkeletonScene joints={previewJoints} />;
@@ -159,7 +171,7 @@ export function Dashboard() {
       return <StageMessage title="No confident joint match" detail="The viewport resumes when both views agree" />;
     }
     return <SkeletonScene joints={latest.joints_3d} />;
-  }, [config, devices, jointCount, latest, phase, previewJoints, session, sessionQuery.isError, sessionQuery.isLoading]);
+  }, [config, devices, displayJoints, jointCount, latest, phase, previewJoints, session, sessionQuery.isError, sessionQuery.isLoading]);
 
   const quality = latest?.form_quality;
   const qualityLabel = quality === "good" ? "Good rep" : quality === "check" ? "Check form" : "Awaiting assessment";
@@ -272,6 +284,9 @@ export function Dashboard() {
               <div className={styles.staleBadge}>
                 <TriangleAlert size={13} /> Last valid pose · waiting for new frames
               </div>
+            )}
+            {approximateCalibration && previewJoints && (
+              <div className={styles.previewBadge}>PHONE-ALIGNED LIVE BODY · 3D METRICS ACTIVE</div>
             )}
           </div>
 

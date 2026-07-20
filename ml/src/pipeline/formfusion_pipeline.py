@@ -28,9 +28,11 @@ class ExerciseDefinition:
 
 
 EXERCISES = {
-    "left_bicep_curl": ExerciseDefinition("left_elbow_flexion", (5, 7, 9), 160, 50, 65),
-    "right_bicep_curl": ExerciseDefinition("right_elbow_flexion", (6, 8, 10), 160, 50, 65),
-    "squat": ExerciseDefinition("left_knee_flexion", (11, 13, 15), 160, 90, 105),
+    "squats": ExerciseDefinition("left_knee_flexion", (11, 13, 15), 155, 105, 115),
+    "deadlifts": ExerciseDefinition("left_hip_hinge", (5, 11, 13), 155, 105, 120),
+    "bench_press": ExerciseDefinition("left_elbow_flexion", (5, 7, 9), 145, 80, 100),
+    "bicep_curls": ExerciseDefinition("left_elbow_flexion", (5, 7, 9), 145, 75, 90),
+    "shoulder_press": ExerciseDefinition("left_elbow_extension", (5, 7, 9), 145, 80, 100),
 }
 
 
@@ -48,7 +50,9 @@ class FormFusionPipeline:
         self.exercise = exercise
         self.calibration = calibration
         self.minimum_confidence = minimum_confidence
-        self.definition = EXERCISES.get(exercise, EXERCISES["left_bicep_curl"])
+        if exercise not in EXERCISES:
+            raise ValueError(f"unsupported exercise: {exercise}")
+        self.definition = EXERCISES[exercise]
         self.filters: dict[int, OneEuroFilter3D] = {}
         self.counter = RepCounter(
             down_threshold=self.definition.down_threshold,

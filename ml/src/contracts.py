@@ -43,7 +43,7 @@ class CameraObservation(Contract):
 class ReconstructionRequest(Contract):
     schema_version: Literal[1] = 1
     session_id: str = Field(min_length=3, max_length=128)
-    exercise: str = Field(default="left_bicep_curl", min_length=1, max_length=64)
+    exercise: str = Field(default="bicep_curls", min_length=1, max_length=64)
     observations: list[CameraObservation] = Field(min_length=2, max_length=8)
 
     @model_validator(mode="after")

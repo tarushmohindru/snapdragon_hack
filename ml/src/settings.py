@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +12,7 @@ class Settings(BaseSettings):
         env_prefix="FORMFUSION_ML_",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     environment: Literal["development", "test", "production"] = "development"
@@ -21,7 +22,14 @@ class Settings(BaseSettings):
     max_capture_bytes: int = Field(default=12 * 1024 * 1024, ge=1024)
     allow_approximate_calibration: bool = True
     approximate_camera_baseline_cm: float = Field(default=30.0, gt=1.0, le=500.0)
-    google_api_key: str | None = None
+    google_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "FORMFUSION_ML_GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+        ),
+    )
     google_model: str = "gemma-3-27b-it"
     sarvam_api_key: str | None = None
     sarvam_model: str = "sarvam-m"

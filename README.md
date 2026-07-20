@@ -121,6 +121,7 @@ must allow inbound TCP 8000, and both phones must be able to reach the computer 
 9. End the session on the host phone to persist its final duration and generate an AI report when
    an LLM provider is configured.
 
+
 ## Canonical live result
 
 Every consumer receives one `pose.result` contract containing:

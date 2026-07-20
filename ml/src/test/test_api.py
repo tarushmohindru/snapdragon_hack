@@ -33,7 +33,7 @@ def test_import_calibration_and_reconstruct(monkeypatch, tmp_path) -> None:
         assert response.status_code == 200
         payload = {
             "session_id": "session-1",
-            "exercise": "left_bicep_curl",
+            "exercise": "bicep_curls",
             "observations": [
                 {
                     "device_id": "phone-a",
